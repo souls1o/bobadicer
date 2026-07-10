@@ -53,7 +53,7 @@ ROLL_HYPE_MESSAGES = [
 # Channels where ticket scanning / form start is ignored
 CHANNEL_BLACKLIST = [
     AUTO_POST_CHANNEL_ID,
-    1524789293607026879,
+    1258789148702146700,
 ]
 
 AUTO_POST_MESSAGE = """<:Dices:1259259866254676049> **Dicing** from **$1** up to **$30** — make a ticket, **I'm fully automated** 🤖
