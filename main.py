@@ -40,22 +40,38 @@ def find_lf_players_channel():
     return None
 
 
-async def resolve_auto_post_channel(*, force_search=False):
-    if not force_search:
-        channel = bot.get_channel(config.AUTO_POST_CHANNEL_ID)
-        if channel is None:
-            try:
-                channel = await bot.fetch_channel(config.AUTO_POST_CHANNEL_ID)
-            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                channel = None
-        if isinstance(channel, discord.TextChannel):
-            return channel
+async def resolve_auto_post_channel():
+    channel_id = config.AUTO_POST_CHANNEL_ID
+    channel = bot.get_channel(channel_id)
+    if channel is None:
+        try:
+            channel = await bot.fetch_channel(channel_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            channel = None
+    if isinstance(channel, discord.TextChannel):
+        return channel
 
-    channel = find_lf_players_channel()
-    if channel is not None and channel.id != config.AUTO_POST_CHANNEL_ID:
-        set_auto_post_channel_id(channel.id)
-        print(f"[auto_post] switched to #{channel.name} ({channel.id})")
-    return channel
+    replacement = find_lf_players_channel()
+    if replacement is not None:
+        if replacement.id != channel_id:
+            set_auto_post_channel_id(replacement.id)
+            print(f"[auto_post] switched to #{replacement.name} ({replacement.id})")
+        return replacement
+
+    return None
+
+
+def _can_post_in(channel):
+    if not isinstance(channel, discord.TextChannel):
+        return False
+    me = channel.guild.me if channel.guild else None
+    if me is None:
+        return True
+    try:
+        perms = channel.permissions_for(me)
+        return perms.view_channel and perms.send_messages
+    except Exception:
+        return False
 
 
 def ensure_auto_post():
@@ -95,25 +111,28 @@ async def auto_post():
             return
         channel = await resolve_auto_post_channel()
         if channel is None:
-            print(f"[auto_post] no #{config.AUTO_POST_CHANNEL_NAME} channel found — will retry next interval")
+            print(
+                f"[auto_post] no channel — configured={config.AUTO_POST_CHANNEL_ID}, "
+                f"no #{config.AUTO_POST_CHANNEL_NAME} found"
+            )
+            return
+        if not _can_post_in(channel):
+            print(
+                f"[auto_post] missing send permission in #{channel.name} ({channel.id})"
+            )
             return
         await queued_send(channel, config.AUTO_POST_MESSAGE)
+        print(f"[auto_post] posted in #{channel.name} ({channel.id})")
     except discord.NotFound:
-        print("[auto_post] channel deleted — searching for replacement")
-        channel = await resolve_auto_post_channel(force_search=True)
-        if channel is not None:
-            try:
-                await queued_send(channel, config.AUTO_POST_MESSAGE)
-            except Exception as exc:
-                print(f"[auto_post] error posting to replacement channel: {exc}")
+        print(f"[auto_post] channel {config.AUTO_POST_CHANNEL_ID} deleted — searching for replacement")
+        replacement = find_lf_players_channel()
+        if replacement is not None:
+            set_auto_post_channel_id(replacement.id)
+            if _can_post_in(replacement):
+                await queued_send(replacement, config.AUTO_POST_MESSAGE)
+                print(f"[auto_post] posted in #{replacement.name} ({replacement.id})")
     except discord.Forbidden:
-        print("[auto_post] missing permission — searching for replacement")
-        channel = await resolve_auto_post_channel(force_search=True)
-        if channel is not None:
-            try:
-                await queued_send(channel, config.AUTO_POST_MESSAGE)
-            except Exception as exc:
-                print(f"[auto_post] error posting to replacement channel: {exc}")
+        print(f"[auto_post] forbidden in #{getattr(channel, 'name', '?')} ({getattr(channel, 'id', '?')})")
     except discord.HTTPException as exc:
         print(f"[auto_post] HTTP error ({exc.status}): {exc}")
     except Exception as exc:
@@ -164,7 +183,7 @@ async def on_guild_channel_update(before, after):
 async def on_guild_channel_delete(channel):
     if channel.id == config.AUTO_POST_CHANNEL_ID:
         print(f"[auto_post] channel deleted ({channel.id}) — searching for #{config.AUTO_POST_CHANNEL_NAME}")
-        replacement = await resolve_auto_post_channel(force_search=True)
+        replacement = await resolve_auto_post_channel()
         if replacement is None:
             print(f"[auto_post] no #{config.AUTO_POST_CHANNEL_NAME} replacement found yet")
     clear_ticket_session(channel.id)
@@ -223,6 +242,11 @@ async def _handle_message(message: discord.Message):
             if channel is not None:
                 label = f"#{channel.name} (`{channel_id}`)"
             await queued_reply(message, f"✅ Auto-post channel set to {label}.")
+            if channel is not None and _can_post_in(channel) and not is_testing_mode():
+                await queued_send(channel, config.AUTO_POST_MESSAGE)
+                await queued_reply(message, "✅ Test auto-post sent.")
+            elif is_testing_mode():
+                await queued_reply(message, "⚠️ Testing mode is on — auto-post loop is paused.")
             return
 
     if not isinstance(message.channel, discord.TextChannel):

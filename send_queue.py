@@ -34,13 +34,17 @@ async def _send_with_retry(send_coro_factory):
 
 async def _worker():
     while True:
-        send_coro_factory = await _queue.get()
+        send_coro_factory, future = await _queue.get()
         try:
             async with _lock:
                 await _wait_for_slot()
-                await _send_with_retry(send_coro_factory)
+                result = await _send_with_retry(send_coro_factory)
+            if not future.done():
+                future.set_result(result)
         except Exception as exc:
             print(f"[send_queue] send failed: {exc}")
+            if not future.done():
+                future.set_exception(exc)
         finally:
             _queue.task_done()
 
@@ -56,12 +60,9 @@ async def queued_send(channel, content, **kwargs):
     future = asyncio.get_running_loop().create_future()
 
     async def _factory():
-        msg = await channel.send(content, **kwargs)
-        if not future.done():
-            future.set_result(msg)
-        return msg
+        return await channel.send(content, **kwargs)
 
-    await _queue.put(_factory)
+    await _queue.put((_factory, future))
     return await future
 
 
@@ -70,10 +71,7 @@ async def queued_reply(message, content, **kwargs):
     future = asyncio.get_running_loop().create_future()
 
     async def _factory():
-        msg = await message.reply(content, **kwargs)
-        if not future.done():
-            future.set_result(msg)
-        return msg
+        return await message.reply(content, **kwargs)
 
-    await _queue.put(_factory)
+    await _queue.put((_factory, future))
     return await future
