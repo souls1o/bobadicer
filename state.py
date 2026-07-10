@@ -1,4 +1,5 @@
 import config
+from bets import get_hold_usd, usd_to_crypto_amount
 
 active_forms = {}
 ticket_channels = set()
@@ -56,18 +57,11 @@ def save_session_from_form(channel_id, form):
 
 def get_hold_data(channel_id):
     form = active_forms.get(channel_id)
-    if form:
-        return (
-            form.get("winnings_usd", 0.0),
-            form.get("winnings_crypto", 0.0),
-            form.get("winnings_coin", "ltc"),
-        )
-    session = get_ticket_session(channel_id)
-    return (
-        session.get("winnings_usd", 0.0),
-        session.get("winnings_crypto", 0.0),
-        session.get("winnings_coin", "ltc"),
-    )
+    source = form if form else get_ticket_session(channel_id)
+    coin = source.get("winnings_coin", "ltc")
+    usd = get_hold_usd(source)
+    crypto = round(usd_to_crypto_amount(usd, coin), 8) if usd > 0 else 0.0
+    return usd, crypto, coin
 
 
 def new_form_dict(channel_id, ticket_user_id):

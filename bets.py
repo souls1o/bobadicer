@@ -99,20 +99,35 @@ def get_wager_usd(form):
     return get_bet_info(form)[1]
 
 
+def get_hold_usd(form):
+    return max(0.0, round(float(form.get("winnings_usd", 0.0)), 8))
+
+
+def sync_hold_crypto(form, coin=COIN):
+    usd = get_hold_usd(form)
+    form["winnings_usd"] = usd
+    form["winnings_crypto"] = round(usd_to_crypto_amount(usd, coin), 8) if usd > 0 else 0.0
+    form["winnings_coin"] = coin
+
+
+def apply_win_to_hold(form):
+    his_bet_usd, my_bet_usd, coin = get_bet_info(form)
+    form["winnings_usd"] = round(get_hold_usd(form) + my_bet_usd + his_bet_usd, 8)
+    sync_hold_crypto(form, coin)
+
+
+def deduct_hold_up_to(form, amount, coin=COIN):
+    hold = get_hold_usd(form)
+    used = min(hold, amount)
+    form["winnings_usd"] = round(hold - used, 8)
+    sync_hold_crypto(form, coin)
+    return used
+
+
 def add_wagered_usd(form, amount=None):
     if amount is None:
         amount = get_wager_usd(form)
     form["total_wagered_usd"] = round(form.get("total_wagered_usd", 0) + amount, 8)
-
-
-def add_winnings_usd(form, usd, coin=COIN):
-    form["winnings_usd"] = round(form.get("winnings_usd", 0) + usd, 8)
-    form["winnings_crypto"] = round(form.get("winnings_crypto", 0) + usd_to_crypto_amount(usd, coin), 8)
-
-
-def subtract_winnings_usd(form, usd, coin=COIN):
-    form["winnings_usd"] = round(form.get("winnings_usd", 0) - usd, 8)
-    form["winnings_crypto"] = round(form.get("winnings_crypto", 0) - usd_to_crypto_amount(usd, coin), 8)
 
 
 def bet_validator(response, form=None):

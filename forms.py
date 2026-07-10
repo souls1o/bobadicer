@@ -114,6 +114,14 @@ def message_references_bot(message, bot_user):
     return any(user.id == bot_user.id for user in message.mentions)
 
 
+def is_selfbot_user(author, bot_user):
+    return author is not None and author.id == bot_user.id
+
+
+def is_valid_ticket_user(user_id, bot_user):
+    return user_id is not None and user_id != bot_user.id
+
+
 def _overwrite_target_ids(channel):
     overwrites = getattr(channel, "overwrites", None)
     if not overwrites:
@@ -171,12 +179,18 @@ def should_process_channel(channel, message=None, bot_user=None):
 
 async def resolve_ticket_user_id(channel, bot_user, *, was_tracked=False):
     session = get_ticket_session(channel.id)
-    if session.get("ticket_user_id"):
-        return session["ticket_user_id"]
+    existing = session.get("ticket_user_id")
+    if existing == bot_user.id:
+        session["ticket_user_id"] = None
+        existing = None
+    if is_valid_ticket_user(existing, bot_user):
+        return existing
 
     ticket_user_id = None
     bot_referenced = False
     async for msg in channel.history(limit=30):
+        if is_selfbot_user(msg.author, bot_user):
+            continue
         if message_references_bot(msg, bot_user):
             bot_referenced = True
             ticket_user_id = msg.author.id
@@ -185,9 +199,12 @@ async def resolve_ticket_user_id(channel, bot_user, *, was_tracked=False):
         return None
     if not ticket_user_id:
         async for msg in channel.history(limit=30):
-            if not msg.author.bot:
-                ticket_user_id = msg.author.id
-                break
+            if is_selfbot_user(msg.author, bot_user) or msg.author.bot:
+                continue
+            ticket_user_id = msg.author.id
+            break
+    if not is_valid_ticket_user(ticket_user_id, bot_user):
+        return None
     return ticket_user_id
 
 
@@ -247,7 +264,7 @@ async def start_ticket_form(channel, bot_user, bot=None):
         return
 
     ticket_user_id = await resolve_ticket_user_id(channel, bot_user, was_tracked=was_tracked)
-    if not ticket_user_id:
+    if not is_valid_ticket_user(ticket_user_id, bot_user):
         return
 
     register_ticket_channel(channel.id)
@@ -359,11 +376,12 @@ async def handle_ticket_command(message, bot_user, bot=None):
 
 
 async def handle_hold_command(message):
-    winnings_usd, winnings_crypto, coin = get_hold_data(message.channel.id)
+    hold_usd, hold_crypto, coin = get_hold_data(message.channel.id)
     await message.channel.send(
         f"**Hold for this ticket**\n"
-        f"**USD:** ${winnings_usd:.2f}\n"
-        f"**{coin.upper()}:** {winnings_crypto}"
+        f"**USD:** ${hold_usd:.2f}\n"
+        f"**{coin.upper()}:** {hold_crypto}\n"
+        f"-# Available for payout or to cover your next rerun wager"
     )
 
 

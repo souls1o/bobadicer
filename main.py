@@ -21,6 +21,42 @@ from state import active_forms, clear_ticket_session, get_form, is_ticket_channe
 bot = commands.Bot(command_prefix="!", self_bot=True)
 
 
+def set_auto_post_channel_id(channel_id):
+    old_id = config.AUTO_POST_CHANNEL_ID
+    config.AUTO_POST_CHANNEL_ID = channel_id
+    if old_id in config.CHANNEL_BLACKLIST:
+        config.CHANNEL_BLACKLIST.remove(old_id)
+    if channel_id not in config.CHANNEL_BLACKLIST:
+        config.CHANNEL_BLACKLIST.append(channel_id)
+
+
+def find_lf_players_channel():
+    target = config.AUTO_POST_CHANNEL_NAME.lower()
+    for guild in bot.guilds:
+        for channel in guild.text_channels:
+            if channel.name.lower() == target:
+                return channel
+    return None
+
+
+async def resolve_auto_post_channel(*, force_search=False):
+    if not force_search:
+        channel = bot.get_channel(config.AUTO_POST_CHANNEL_ID)
+        if channel is None:
+            try:
+                channel = await bot.fetch_channel(config.AUTO_POST_CHANNEL_ID)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                channel = None
+        if isinstance(channel, discord.TextChannel):
+            return channel
+
+    channel = find_lf_players_channel()
+    if channel is not None and channel.id != config.AUTO_POST_CHANNEL_ID:
+        set_auto_post_channel_id(channel.id)
+        print(f"[auto_post] switched to #{channel.name} ({channel.id})")
+    return channel
+
+
 def ensure_auto_post():
     if auto_post.is_running():
         return
@@ -31,6 +67,9 @@ def ensure_auto_post():
 @bot.event
 async def on_ready():
     print(f"✅ Selfbot logged in as {bot.user} (ID: {bot.user.id})")
+    channel = await resolve_auto_post_channel()
+    if channel is None:
+        print(f"[auto_post] no #{config.AUTO_POST_CHANNEL_NAME} channel found at startup")
     ensure_auto_post()
     if not watchdog.is_running():
         watchdog.start()
@@ -52,12 +91,27 @@ async def auto_post():
     try:
         if is_testing_mode():
             return
-        channel = bot.get_channel(config.AUTO_POST_CHANNEL_ID)
+        channel = await resolve_auto_post_channel()
         if channel is None:
-            channel = await bot.fetch_channel(config.AUTO_POST_CHANNEL_ID)
+            print(f"[auto_post] no #{config.AUTO_POST_CHANNEL_NAME} channel found — will retry next interval")
+            return
         await channel.send(config.AUTO_POST_MESSAGE)
+    except discord.NotFound:
+        print("[auto_post] channel deleted — searching for replacement")
+        channel = await resolve_auto_post_channel(force_search=True)
+        if channel is not None:
+            try:
+                await channel.send(config.AUTO_POST_MESSAGE)
+            except Exception as exc:
+                print(f"[auto_post] error posting to replacement channel: {exc}")
     except discord.Forbidden:
-        print("[auto_post] missing permission — will retry next interval")
+        print("[auto_post] missing permission — searching for replacement")
+        channel = await resolve_auto_post_channel(force_search=True)
+        if channel is not None:
+            try:
+                await channel.send(config.AUTO_POST_MESSAGE)
+            except Exception as exc:
+                print(f"[auto_post] error posting to replacement channel: {exc}")
     except discord.HTTPException as exc:
         print(f"[auto_post] HTTP error ({exc.status}): {exc}")
     except Exception as exc:
@@ -90,8 +144,12 @@ async def before_watchdog():
 
 @bot.event
 async def on_guild_channel_create(channel):
-    if isinstance(channel, discord.TextChannel) and was_bot_added_to_channel(channel, bot.user):
-        await handle_bot_added_to_channel(bot, channel)
+    if isinstance(channel, discord.TextChannel):
+        if channel.name.lower() == config.AUTO_POST_CHANNEL_NAME.lower():
+            set_auto_post_channel_id(channel.id)
+            print(f"[auto_post] new #{channel.name} channel detected ({channel.id})")
+        if was_bot_added_to_channel(channel, bot.user):
+            await handle_bot_added_to_channel(bot, channel)
 
 
 @bot.event
@@ -102,6 +160,11 @@ async def on_guild_channel_update(before, after):
 
 @bot.event
 async def on_guild_channel_delete(channel):
+    if channel.id == config.AUTO_POST_CHANNEL_ID:
+        print(f"[auto_post] channel deleted ({channel.id}) — searching for #{config.AUTO_POST_CHANNEL_NAME}")
+        replacement = await resolve_auto_post_channel(force_search=True)
+        if replacement is None:
+            print(f"[auto_post] no #{config.AUTO_POST_CHANNEL_NAME} replacement found yet")
     clear_ticket_session(channel.id)
 
 

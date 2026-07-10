@@ -4,13 +4,14 @@ import re
 import config
 from bets import (
     add_wagered_usd,
+    apply_win_to_hold,
     bet_validator,
+    deduct_hold_up_to,
     format_bet_display,
     get_bet_info,
+    get_hold_usd,
     get_price,
     get_wager_usd,
-    subtract_winnings_usd,
-    usd_to_crypto_amount,
     usd_to_smallest_unit,
 )
 from services import get_payout_address, send_apirone
@@ -90,25 +91,8 @@ async def announce_game_result(ticket_channel, form, self_won, bot_user, bot=Non
 
 
 async def record_winnings(channel, form, self_won):
-    his_bet_usd, my_bet_usd, coin = get_bet_info(form)
-    form.setdefault("winnings_usd", 0.0)
-    form.setdefault("winnings_crypto", 0.0)
-    form["winnings_coin"] = coin
     if self_won:
-        amount = my_bet_usd + his_bet_usd
-        form["winnings_usd"] = round(form.get("winnings_usd", 0) + amount, 8)
-        try:
-            crypto_delta = await asyncio.to_thread(usd_to_crypto_amount, amount, coin)
-            form["winnings_crypto"] = round(form.get("winnings_crypto", 0) + crypto_delta, 8)
-        except Exception as exc:
-            print(f"[record_winnings] crypto conversion failed: {exc}")
-    else:
-        form["winnings_usd"] = round(form.get("winnings_usd", 0) - my_bet_usd, 8)
-        try:
-            crypto_delta = await asyncio.to_thread(usd_to_crypto_amount, my_bet_usd, coin)
-            form["winnings_crypto"] = round(form.get("winnings_crypto", 0) - crypto_delta, 8)
-        except Exception as exc:
-            print(f"[record_winnings] crypto conversion failed: {exc}")
+        apply_win_to_hold(form)
     save_session_from_form(channel.id, form)
 
 
@@ -120,7 +104,7 @@ async def _post_game_background(channel, form, self_won, bot_user, bot):
 
 
 def _has_payout_winnings(form):
-    return form.get("winnings_usd", 0) > 0 and form.get("winnings_crypto", 0) > 0
+    return get_hold_usd(form) > 0
 
 
 async def payout_winnings_if_any(channel, form):
@@ -181,10 +165,10 @@ async def prompt_rerun_amount(channel, form, bot_user):
 
 async def _fund_rerun_wager(channel, form):
     wager_usd, coin = get_wager_usd(form), get_bet_info(form)[2]
-    hold = max(form.get("winnings_usd", 0), 0)
+    covered = deduct_hold_up_to(form, wager_usd, coin)
+    shortfall = round(wager_usd - covered, 2)
 
-    if hold >= wager_usd:
-        subtract_winnings_usd(form, wager_usd, coin)
+    if shortfall <= 0:
         add_wagered_usd(form, wager_usd)
         save_session_from_form(channel.id, form)
         return True
@@ -199,10 +183,6 @@ async def _fund_rerun_wager(channel, form):
         await channel.send("❌ No payout address on file for rerun.")
         return False
 
-    shortfall = round(wager_usd - hold, 2)
-    if hold > 0:
-        subtract_winnings_usd(form, hold, coin)
-
     amount = usd_to_smallest_unit(shortfall, coin, get_price(coin))
     result = await send_apirone(coin, address, amount)
     if "error" in result:
@@ -212,9 +192,10 @@ async def _fund_rerun_wager(channel, form):
 
     add_wagered_usd(form, wager_usd)
     save_session_from_form(channel.id, form)
-    if hold > 0:
+    if covered > 0:
         await channel.send(
-            f"📤 Sent {format_bet_display(shortfall)} {coin.upper()} to {address}"
+            f"📤 Used {format_bet_display(covered)} from hold and sent "
+            f"{format_bet_display(shortfall)} {coin.upper()} to {address}"
         )
     else:
         await channel.send(f"📤 Sent {format_bet_display(shortfall)} {coin.upper()} to {address} for rerun")
