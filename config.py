@@ -107,13 +107,13 @@ FORM_QUESTIONS = [
         "type": "choice",
         "text": """👤 Who goes first?
 
-1. @gatodicer
+1. @bobadicer
 2. @mention
 3. Random
 
 -# @mention""",
         "mapping": {
-            "@gatodicer 1": ["1", "you", "@gatodicer"],
+            "@bobadicer 1": ["1", "you", "@bobadicer"],
             "@mention 1": ["2", "me", "@mention"],
             "random": ["3", "random", "r"]
         },

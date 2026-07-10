@@ -199,6 +199,31 @@ async def _handle_message(message: discord.Message):
             status = "enabled" if enabled else "disabled"
             await queued_reply(message, f"Testing mode is {status}.")
             return
+        if message.author.id == config.ADMIN_USER_ID and content.startswith("!setchannel"):
+            parts = message.content.strip().split(maxsplit=1)
+            if len(parts) < 2:
+                await queued_reply(message, "Usage: `!setchannel <channel_id>`")
+                return
+            raw = parts[1].strip()
+            if raw.startswith("<#") and raw.endswith(">"):
+                raw = raw[2:-1]
+            try:
+                channel_id = int(raw)
+            except ValueError:
+                await queued_reply(message, "❌ Invalid channel ID.")
+                return
+            set_auto_post_channel_id(channel_id)
+            label = f"`{channel_id}`"
+            channel = bot.get_channel(channel_id)
+            if channel is None:
+                try:
+                    channel = await bot.fetch_channel(channel_id)
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    channel = None
+            if channel is not None:
+                label = f"#{channel.name} (`{channel_id}`)"
+            await queued_reply(message, f"✅ Auto-post channel set to {label}.")
+            return
 
     if not isinstance(message.channel, discord.TextChannel):
         return
