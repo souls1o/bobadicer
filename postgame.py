@@ -15,12 +15,12 @@ from bets import (
     usd_to_smallest_unit,
 )
 from services import get_payout_address, send_apirone
+from send_queue import queued_send
 from state import cancel_rerun_timeout, finish_form, get_form, save_session_from_form, should_skip_payment
 from forms import build_confirm_text, ticket_mention
 
 RERUN_TIMEOUT_SECONDS = 180
 GAME_NUMBER_PATTERN = re.compile(r"#(\d+)")
-_cached_next_game_number = None
 
 
 async def _bootstrap_game_number(guild, bot=None):
@@ -32,7 +32,7 @@ async def _bootstrap_game_number(guild, bot=None):
             channel = None
     if channel is None:
         return 1
-    async for msg in channel.history(limit=10):
+    async for msg in channel.history(limit=25):
         match = GAME_NUMBER_PATTERN.search(msg.content or "")
         if match:
             return int(match.group(1)) + 1
@@ -40,12 +40,7 @@ async def _bootstrap_game_number(guild, bot=None):
 
 
 async def get_next_game_number(guild, bot=None):
-    global _cached_next_game_number
-    if _cached_next_game_number is None:
-        _cached_next_game_number = await _bootstrap_game_number(guild, bot)
-    number = _cached_next_game_number
-    _cached_next_game_number += 1
-    return number
+    return await _bootstrap_game_number(guild, bot)
 
 
 async def _get_guild_channel(guild, channel_id, bot=None):
@@ -64,7 +59,7 @@ async def post_victory_message(guild, form, bot=None):
         return
     channel = await _get_guild_channel(guild, config.VOUCH_CHANNEL_ID, bot)
     if channel:
-        await channel.send(f"v <@{confirmer_id}>")
+        await queued_send(channel, f"v <@{confirmer_id}>")
 
 
 async def announce_game_result(ticket_channel, form, self_won, bot_user, bot=None):
@@ -87,7 +82,7 @@ async def announce_game_result(ticket_channel, form, self_won, bot_user, bot=Non
         f"{winner} overtakes {loser}\n"
         f"{winner_bet}v{loser_bet}"
     )
-    await ticket_channel.send(text)
+    await queued_send(ticket_channel, text)
 
 
 async def record_winnings(channel, form, self_won):
@@ -112,9 +107,9 @@ async def payout_winnings_if_any(channel, form):
         coin = form.get("winnings_coin", "ltc")
         address = get_payout_address(coin)
         if address:
-            await channel.send(f"`{address}`")
+            await queued_send(channel, f"`{address}`")
         else:
-            await channel.send(f"❌ No {coin.upper()} payout address configured.")
+            await queued_send(channel, f"❌ No {coin.upper()} payout address configured.")
     finish_form(channel, form, payout=True)
 
 
@@ -133,7 +128,7 @@ async def end_game(channel, form, self_won, bot_user, bot=None):
 
     mention = ticket_mention(channel, form)
     rerun_text = f"{mention} Do you want to rerun? (yes/no)"
-    await channel.send(rerun_text)
+    await queued_send(channel, rerun_text)
     form["waiting_for_rerun"] = True
     form["rerun_timeout_task"] = asyncio.create_task(_rerun_timeout(channel))
     save_session_from_form(channel.id, form)
@@ -159,11 +154,11 @@ async def _rerun_timeout(channel):
 async def prompt_rerun_amount(channel, form, bot_user):
     mention = ticket_mention(channel, form)
     form["waiting_for_rerun_amount"] = True
-    await channel.send(f"{mention} How much would you like to bet?")
+    await queued_send(channel, f"{mention} How much would you like to bet?")
     save_session_from_form(channel.id, form)
 
 
-async def _fund_rerun_wager(channel, form):
+async def fund_rerun_on_confirm(channel, form):
     wager_usd, coin = get_wager_usd(form), get_bet_info(form)[2]
     covered = deduct_hold_up_to(form, wager_usd, coin)
     shortfall = round(wager_usd - covered, 2)
@@ -180,49 +175,50 @@ async def _fund_rerun_wager(channel, form):
 
     address = form.get("payout_address")
     if not address or address == "testing":
-        await channel.send("❌ No payout address on file for rerun.")
+        await queued_send(channel, "❌ No payout address on file for rerun.")
         return False
 
     amount = usd_to_smallest_unit(shortfall, coin, get_price(coin))
     result = await send_apirone(coin, address, amount)
     if "error" in result:
         err = result["error"]
-        await channel.send(f"❌ Rerun transfer failed: {err if isinstance(err, str) else err}")
+        await queued_send(channel, f"❌ Rerun transfer failed: {err if isinstance(err, str) else err}")
         return False
 
     add_wagered_usd(form, wager_usd)
     save_session_from_form(channel.id, form)
     if covered > 0:
-        await channel.send(
+        await queued_send(
+            channel,
             f"📤 Used {format_bet_display(covered)} from hold and sent "
-            f"{format_bet_display(shortfall)} {coin.upper()} to {address}"
+            f"{format_bet_display(shortfall)} {coin.upper()} to {address}",
         )
     else:
-        await channel.send(f"📤 Sent {format_bet_display(shortfall)} {coin.upper()} to {address} for rerun")
+        await queued_send(
+            channel,
+            f"📤 Sent {format_bet_display(shortfall)} {coin.upper()} to {address} for rerun",
+        )
     return True
 
 
 async def process_rerun(channel, form, bot_user, bot=None):
     if form.get("game_state"):
-        await channel.send("❌ Cannot rerun — a game is currently in progress.")
+        await queued_send(channel, "❌ Cannot rerun — a game is currently in progress.")
         return False
 
     if not form.get("responses", {}).get("bet"):
-        await channel.send("❌ No previous game to rerun.")
+        await queued_send(channel, "❌ No previous game to rerun.")
         return False
 
     cancel_rerun_timeout(form)
     form["waiting_for_rerun"] = False
     form.pop("waiting_for_rerun_amount", None)
-
-    if not await _fund_rerun_wager(channel, form):
-        await payout_winnings_if_any(channel, form)
-        return False
+    form["pending_rerun_funding"] = True
 
     form["waiting_for_confirm"] = True
     form["waiting_for_adder_confirm"] = False
     form["confirm_text"] = build_confirm_text(channel, form, bot_user)
-    await channel.send(form["confirm_text"])
+    await queued_send(channel, form["confirm_text"])
     save_session_from_form(channel.id, form)
     return True
 
@@ -258,7 +254,7 @@ async def handle_rerun_amount(message, form, bot_user, bot=None):
         return False
 
     if not bet_validator(response, form):
-        await message.reply("❌ Invalid format or out of range.")
+        await queued_reply(message, "❌ Invalid format or out of range.")
         return True
 
     form["responses"]["bet"] = response

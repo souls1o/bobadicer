@@ -15,6 +15,7 @@ from forms import (
     was_bot_added_to_channel,
 )
 from games import DA_HOOD_BOT_ID, handle_da_hood_message, handle_user_roll, start_game
+from send_queue import ensure_worker, queued_reply, queued_send
 from services import get_house_balance_text
 from state import active_forms, clear_ticket_session, get_form, is_ticket_channel, is_testing_mode, toggle_testing
 
@@ -67,6 +68,7 @@ def ensure_auto_post():
 @bot.event
 async def on_ready():
     print(f"✅ Selfbot logged in as {bot.user} (ID: {bot.user.id})")
+    ensure_worker()
     channel = await resolve_auto_post_channel()
     if channel is None:
         print(f"[auto_post] no #{config.AUTO_POST_CHANNEL_NAME} channel found at startup")
@@ -95,13 +97,13 @@ async def auto_post():
         if channel is None:
             print(f"[auto_post] no #{config.AUTO_POST_CHANNEL_NAME} channel found — will retry next interval")
             return
-        await channel.send(config.AUTO_POST_MESSAGE)
+        await queued_send(channel, config.AUTO_POST_MESSAGE)
     except discord.NotFound:
         print("[auto_post] channel deleted — searching for replacement")
         channel = await resolve_auto_post_channel(force_search=True)
         if channel is not None:
             try:
-                await channel.send(config.AUTO_POST_MESSAGE)
+                await queued_send(channel, config.AUTO_POST_MESSAGE)
             except Exception as exc:
                 print(f"[auto_post] error posting to replacement channel: {exc}")
     except discord.Forbidden:
@@ -109,7 +111,7 @@ async def auto_post():
         channel = await resolve_auto_post_channel(force_search=True)
         if channel is not None:
             try:
-                await channel.send(config.AUTO_POST_MESSAGE)
+                await queued_send(channel, config.AUTO_POST_MESSAGE)
             except Exception as exc:
                 print(f"[auto_post] error posting to replacement channel: {exc}")
     except discord.HTTPException as exc:
@@ -184,18 +186,18 @@ async def _handle_message(message: discord.Message):
         content = message.content.strip().lower()
 
         if content == "!help":
-            await message.reply(build_dm_help_text(message.author.id))
+            await queued_reply(message, build_dm_help_text(message.author.id))
             return
         if content == "!gamemodes":
-            await message.reply(build_dm_gamemodes_text())
+            await queued_reply(message, build_dm_gamemodes_text())
             return
         if content == "!housebal":
-            await message.reply(await get_house_balance_text())
+            await queued_reply(message, await get_house_balance_text())
             return
         if content == "!toggle testing" and message.author.id == config.ADMIN_USER_ID:
             enabled = toggle_testing()
             status = "enabled" if enabled else "disabled"
-            await message.reply(f"Testing mode is {status}.")
+            await queued_reply(message, f"Testing mode is {status}.")
             return
 
     if not isinstance(message.channel, discord.TextChannel):
