@@ -35,18 +35,19 @@ def is_ticket_closed(channel_id):
 
 
 def mark_ticket_closed(channel_id):
-    """End the form/session but keep the channel recognized for !hold / coin commands."""
+    """End the form but keep hold + channel recognized for !hold / coin commands.
+
+    Hold is never zeroed while the ticket channel still exists — only reduced
+    when spent on a wager, or cleared when the channel is deleted.
+    """
     closed_ticket_channels.add(channel_id)
-    active_forms.pop(channel_id, None)
-    prev = ticket_sessions.get(channel_id) or {}
-    ticket_sessions[channel_id] = {
-        "ticket_user_id": prev.get("ticket_user_id"),
-        "winnings_usd": 0.0,
-        "winnings_crypto": 0.0,
-        "winnings_coin": "ltc",
-        "closed": True,
-        "played": True,
-    }
+    form = active_forms.pop(channel_id, None)
+    if form:
+        cancel_rerun_timeout(form)
+        save_session_from_form(channel_id, form)
+    session = get_ticket_session(channel_id)
+    session["closed"] = True
+    session["played"] = True
     ticket_channels.add(channel_id)
 
 
@@ -163,9 +164,10 @@ def clear_ticket_session(channel_id):
 def finish_form(channel, form, *, payout=False):
     cancel_rerun_timeout(form)
     channel_id = channel.id
+    # Always persist hold before dropping the active form
+    save_session_from_form(channel_id, form)
     if payout:
-        # Ticket is done — do not auto-restart the form on later messages
+        # Form done — block auto-restart; hold stays until spent or channel deleted
         mark_ticket_closed(channel_id)
     else:
-        save_session_from_form(channel_id, form)
         active_forms.pop(channel_id, None)

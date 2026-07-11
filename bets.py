@@ -31,12 +31,7 @@ def extract_crypto_address(text, _coin=None):
 
 
 def get_max_bet(form):
-    gamemode = form.get("responses", {}).get("gamemode")
-    if gamemode == "fair":
-        return 200
-    if gamemode == "ties":
-        return 200
-    return 50
+    return 30
 
 
 def format_bet_display(value):
