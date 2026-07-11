@@ -17,7 +17,7 @@ from forms import (
 from games import DA_HOOD_BOT_ID, handle_da_hood_message, handle_user_roll, start_game
 from send_queue import ensure_worker, queued_reply, queued_send
 from services import get_house_balance_text
-from state import active_forms, clear_ticket_session, get_form, is_ticket_channel, is_testing_mode, toggle_testing
+from state import active_forms, clear_ticket_session, get_form, is_ticket_channel, is_ticket_closed, is_testing_mode, ticket_has_played, toggle_testing
 
 bot = commands.Bot(command_prefix="!", self_bot=True)
 
@@ -25,8 +25,11 @@ bot = commands.Bot(command_prefix="!", self_bot=True)
 def set_auto_post_channel_id(channel_id):
     old_id = config.AUTO_POST_CHANNEL_ID
     config.AUTO_POST_CHANNEL_ID = channel_id
-    if old_id in config.CHANNEL_BLACKLIST:
-        config.CHANNEL_BLACKLIST.remove(old_id)
+    # Keep ID entries in sync; name entries (e.g. "lf-players") stay as-is
+    config.CHANNEL_BLACKLIST = [
+        item for item in config.CHANNEL_BLACKLIST
+        if not (isinstance(item, int) and item == old_id)
+    ]
     if channel_id not in config.CHANNEL_BLACKLIST:
         config.CHANNEL_BLACKLIST.append(channel_id)
 
@@ -269,13 +272,11 @@ async def _handle_message(message: discord.Message):
 
     if form and "game_state" in form:
         state = form["game_state"]
-        if state.get("game_type") == "dice" and message.author.bot and (
-            state.get("waiting_for_embed")
-            or state.get("pending_bot_total") is not None
-            or state.get("awaiting_user_after_bot")
-            or state.get("bot_rolls_remaining", 0) > 0
-            or state.get("pending_user_embeds", 0) > 0
-        ):
+        # Always feed roll embeds into the game while dice is active —
+        # never gate on waiting flags (embeds can arrive before state updates).
+        if state.get("game_type") == "dice" and (
+            message.author.bot or message.author.id == DA_HOOD_BOT_ID
+        ) and message.embeds:
             await handle_da_hood_message(message, form, bot.user, bot)
             return
         if message.author.id == DA_HOOD_BOT_ID:
@@ -286,12 +287,17 @@ async def _handle_message(message: discord.Message):
     if form and not form.get("game_state") and not form.get("waiting_for_confirm") and not form.get("waiting_for_rerun") and not form.get("waiting_for_rerun_amount"):
         await handle_form_step(message, form, bot.user)
 
-    if channel_id not in active_forms:
-        await asyncio.sleep(1)
-        await start_ticket_form(message.channel, bot.user, bot)
+    # Handle rerun/confirm/payment listeners before considering a form restart
+    if channel_id in active_forms:
+        await handle_global_listeners(message, bot.user, start_game, bot)
         return
 
-    await handle_global_listeners(message, bot.user, start_game, bot)
+    # After a game has been played, never auto-start from mentions — only !rerun / "yes"
+    if is_ticket_closed(channel_id) or ticket_has_played(channel_id):
+        return
+
+    await asyncio.sleep(1)
+    await start_ticket_form(message.channel, bot.user, bot)
 
 
 if __name__ == "__main__":

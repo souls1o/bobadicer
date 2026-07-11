@@ -12,6 +12,7 @@ from bets import (
     get_hold_usd,
     get_price,
     get_wager_usd,
+    sync_hold_crypto,
     usd_to_smallest_unit,
 )
 from services import get_payout_address, send_apirone
@@ -158,21 +159,7 @@ async def prompt_rerun_amount(channel, form, bot_user):
     save_session_from_form(channel.id, form)
 
 
-async def fund_rerun_on_confirm(channel, form):
-    wager_usd, coin = get_wager_usd(form), get_bet_info(form)[2]
-    covered = deduct_hold_up_to(form, wager_usd, coin)
-    shortfall = round(wager_usd - covered, 2)
-
-    if shortfall <= 0:
-        add_wagered_usd(form, wager_usd)
-        save_session_from_form(channel.id, form)
-        return True
-
-    if should_skip_payment(form):
-        add_wagered_usd(form, wager_usd)
-        save_session_from_form(channel.id, form)
-        return True
-
+async def _send_rerun_shortfall(channel, form, shortfall, coin):
     address = form.get("payout_address")
     if not address or address == "testing":
         await queued_send(channel, "❌ No payout address on file for rerun.")
@@ -185,19 +172,68 @@ async def fund_rerun_on_confirm(channel, form):
         await queued_send(channel, f"❌ Rerun transfer failed: {err if isinstance(err, str) else err}")
         return False
 
+    await queued_send(
+        channel,
+        f"📤 Sent {format_bet_display(shortfall)} {coin.upper()} to {address} for rerun",
+    )
+    return True
+
+
+async def fund_rerun_before_confirm(channel, form):
+    """
+    Before confirm:
+    - If hold covers the full bot wager → do nothing yet (deduct after confirm)
+    - If hold is short → deduct available hold now and send only the shortfall now
+    Never sends crypto after confirmation.
+    """
+    wager_usd, coin = get_wager_usd(form), get_bet_info(form)[2]
+    hold = get_hold_usd(form)
+
+    if should_skip_payment(form):
+        form["pending_hold_deduction"] = False
+        add_wagered_usd(form, wager_usd)
+        save_session_from_form(channel.id, form)
+        return True
+
+    if hold >= wager_usd:
+        # Sufficient hold — wait until confirm to subtract
+        form["pending_hold_deduction"] = True
+        save_session_from_form(channel.id, form)
+        return True
+
+    # Insufficient hold — fund shortfall now (before confirm)
+    form["pending_hold_deduction"] = False
+    covered = deduct_hold_up_to(form, hold, coin) if hold > 0 else 0.0
+    shortfall = round(wager_usd - covered, 2)
+
+    if shortfall > 0:
+        if not await _send_rerun_shortfall(channel, form, shortfall, coin):
+            # Restore hold if transfer failed
+            if covered > 0:
+                form["winnings_usd"] = round(get_hold_usd(form) + covered, 8)
+                sync_hold_crypto(form, coin)
+            save_session_from_form(channel.id, form)
+            return False
+
     add_wagered_usd(form, wager_usd)
     save_session_from_form(channel.id, form)
-    if covered > 0:
-        await queued_send(
-            channel,
-            f"📤 Used {format_bet_display(covered)} from hold and sent "
-            f"{format_bet_display(shortfall)} {coin.upper()} to {address}",
-        )
-    else:
-        await queued_send(
-            channel,
-            f"📤 Sent {format_bet_display(shortfall)} {coin.upper()} to {address} for rerun",
-        )
+    return True
+
+
+async def deduct_hold_on_confirm(channel, form):
+    """After confirm: only subtract hold when it fully covered the rerun (no crypto)."""
+    if not form.pop("pending_hold_deduction", False):
+        return True
+
+    wager_usd, coin = get_wager_usd(form), get_bet_info(form)[2]
+    hold = get_hold_usd(form)
+    if hold < wager_usd:
+        await queued_send(channel, "❌ Hold no longer covers this rerun.")
+        return False
+
+    deduct_hold_up_to(form, wager_usd, coin)
+    add_wagered_usd(form, wager_usd)
+    save_session_from_form(channel.id, form)
     return True
 
 
@@ -213,7 +249,10 @@ async def process_rerun(channel, form, bot_user, bot=None):
     cancel_rerun_timeout(form)
     form["waiting_for_rerun"] = False
     form.pop("waiting_for_rerun_amount", None)
-    form["pending_rerun_funding"] = True
+
+    if not await fund_rerun_before_confirm(channel, form):
+        await payout_winnings_if_any(channel, form)
+        return False
 
     form["waiting_for_confirm"] = True
     form["waiting_for_adder_confirm"] = False
@@ -241,24 +280,15 @@ async def handle_rerun_response(message, form, bot_user, start_game_fn, bot=None
             finish_form(message.channel, form, payout=True)
         return True
 
-    await prompt_rerun_amount(message.channel, form, bot_user)
+    # "yes" → brand-new form (do not reuse old gamemode/bet/settings)
+    from forms import start_fresh_form
+    save_session_from_form(message.channel.id, form)
+    await start_fresh_form(
+        message.channel, bot_user, ticket_user_id=form.get("ticket_user_id")
+    )
     return True
 
 
 async def handle_rerun_amount(message, form, bot_user, bot=None):
-    if not form.get("waiting_for_rerun_amount") or message.author.id != form["ticket_user_id"]:
-        return False
-
-    response = message.content.strip()
-    if response.lower() in ("yes", "no"):
-        return False
-
-    if not bet_validator(response, form):
-        await queued_reply(message, "❌ Invalid format or out of range.")
-        return True
-
-    form["responses"]["bet"] = response
-    form["waiting_for_rerun_amount"] = False
-    save_session_from_form(message.channel.id, form)
-    await process_rerun(message.channel, form, bot_user, bot)
-    return True
+    # Legacy path — reruns now use a fresh form instead of amount-only reuse
+    return False
