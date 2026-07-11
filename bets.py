@@ -31,7 +31,7 @@ def extract_crypto_address(text, _coin=None):
 
 
 def get_max_bet(form):
-    return 30
+    return 20
 
 
 def format_bet_display(value):
@@ -136,5 +136,5 @@ def bet_validator(response, form=None):
     if len(parts) == 2 and normalize_coin(parts[1]) != COIN:
         return False
     if not form:
-        return 1 <= amount <= 50
+        return 1 <= amount <= 20
     return 1 <= amount <= get_max_bet(form)
