@@ -2,7 +2,8 @@ import asyncio
 
 import discord
 
-# Discord allows ~5 msgs/sec; stay under with 4/sec.
+# Soft global pacing. Discord's real limits are dynamic — 429 retry below
+# is what actually backs off when Discord says to wait.
 _MIN_INTERVAL = 0.25
 
 _lock = asyncio.Lock()
@@ -17,17 +18,28 @@ async def _wait_for_slot():
     delay = _MIN_INTERVAL - (now - _last_send_at)
     if delay > 0:
         await asyncio.sleep(delay)
+
+
+def _mark_sent():
+    global _last_send_at
     _last_send_at = asyncio.get_running_loop().time()
 
 
 async def _send_with_retry(send_coro_factory):
-    for attempt in range(4):
+    for attempt in range(5):
         try:
-            return await send_coro_factory()
+            result = await send_coro_factory()
+            _mark_sent()
+            return result
         except discord.HTTPException as exc:
-            if exc.status == 429 and attempt < 3:
-                retry_after = getattr(exc, "retry_after", None) or 1.0
-                await asyncio.sleep(float(retry_after))
+            if exc.status == 429 and attempt < 4:
+                retry_after = getattr(exc, "retry_after", None)
+                if retry_after is None:
+                    retry_after = 1.0
+                wait = float(retry_after) + 0.35
+                print(f"[send_queue] rate limited — waiting {wait:.1f}s (attempt {attempt + 1})")
+                await asyncio.sleep(wait)
+                _mark_sent()  # treat cooldown as "just sent" so next gap is full interval
                 continue
             raise
 

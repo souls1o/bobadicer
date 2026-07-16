@@ -62,7 +62,7 @@ CHANNEL_BLACKLIST = [
 AUTO_POST_MESSAGE = """<:Dices:1259259866254676049> **Dicing** from **$1** up to **$20** — make a ticket, **I'm fully automated** 🤖
 
 <:Dices:1259259866254676049> **__I Win Ties__ | FT3 -> I offer 20% HIGHER bet / FT5 -> I offer 30% HIGHER bet**
-<:Dices:1259259866254676049> **__Fair__ | FT3/FT5 -> I offer 15% LOWER bet**
+<:Dices:1259259866254676049> **__Fair__ | FT3/FT5 -> I offer 10% LOWER bet**
 """
 
 FORM_QUESTIONS = [
@@ -70,7 +70,7 @@ FORM_QUESTIONS = [
         "type": "choice",
         "text": """<:Dices:1259259866254676049> Which gamemode would you like to play?
 1. I Win Ties — FT3 → 20% HIGHER Bet | FT5 → 30% HIGHER Bet
-2. Fair — 15% LOWER Bet
+2. Fair — 10% LOWER Bet
 
 -# @mention
 """,
@@ -98,7 +98,7 @@ FORM_QUESTIONS = [
     },
     {
         "type": "open",
-        "text": '🎲 **How much would you like to bet?**\n\n**(MIN: __1$__ | MAX: 20$__)**\n\n-# @mention',
+        "text": '🎲 **How much would you like to bet?**\n\n**(MIN: __1$__ | MAX: __20$__)**\n\n-# @mention',
         "short_key": "bet",
         "validator": "bet_validator"
     },
