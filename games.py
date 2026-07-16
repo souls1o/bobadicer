@@ -41,7 +41,7 @@ async def get_ticket_channel(bot, form, fallback=None):
 
 
 def is_bot_turn(state):
-    return state["current_player"] in ("me", "@trumpdicer", "@gatodicer")
+    return state["current_player"] in ("me", "@bobadice", "@gatodicer")
 
 
 def _waiting_for_bot_embed(state, bot_user_id):
@@ -257,7 +257,6 @@ async def _score_pair(roll_channel, form, bot_user, bot, me_total, you_total, *,
     if game_over:
         self_won = state["self_score"] >= first_to
         winner_id = bot_user.id if self_won else form["ticket_user_id"]
-        await queued_send(ticket_channel, f"<@{winner_id}> won!")
         await end_game(ticket_channel, form, self_won, bot_user, bot)
         return True
 
@@ -449,13 +448,13 @@ async def start_game(channel, form, bot_user, bot=None):
     responses = form["responses"]
     first_to = int(responses.get("first_to", "ft3").replace("ft", ""))
 
-    first_raw = responses.get("first", "@trumpdicer 1").replace(" 1", "").strip()
+    first_raw = responses.get("first", "@bobadice 1").replace(" 1", "").strip()
     ticket_user_id = form.get("ticket_user_id")
     if first_raw in ("@mention", "you") or (
         ticket_user_id and str(ticket_user_id) in first_raw
     ):
         first_player = "you"
-    elif first_raw in ("@trumpdicer", "me") or str(bot_user.id) in first_raw:
+    elif first_raw in ("@bobadice", "me") or str(bot_user.id) in first_raw:
         first_player = "me"
     else:
         first_player = first_raw
