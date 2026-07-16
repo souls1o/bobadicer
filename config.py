@@ -13,11 +13,12 @@ COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 # Hardcoded deposit addresses (!ltc, !btc, etc.)
 COIN_ADDRESSES = {
     "ltc": "ltc1qy3kq9h0c0pmllm6yzrl7gc9gd9tyfevhvvkqcg",
-    "btc": "bc1q24ptksu6uyu5kedfge3enum4v2drq0kxgfqlaw",
-    "eth": "0xd4f77Fce773927477dC543B150e4c2223FC67Db9",
-    "sol": "DgPd6dvF7HKyZuHMkT89hWzErXbuPmrjTjFBTd8UvFyF",
-    "usdt": "0xd4f77Fce773927477dC543B150e4c2223FC67Db9",
-    "usdc": "0xd4f77Fce773927477dC543B150e4c2223FC67Db9",
+    "btc": "bc1qds3y6eyjms05zyx8kq7yayw5plmnt2mdtz8yuu",
+    "eth": "0x612283553FDaC711ee03f685E9A2637Fd3Fd6D4e",
+    "sol": "7EQWjVy4qcbNee6SkJi34F7WUDRqrQzieqEnkt7yBFJi",
+    "usdt": "0x612283553FDaC711ee03f685E9A2637Fd3Fd6D4e",
+    "usdc": "0x612283553FDaC711ee03f685E9A2637Fd3Fd6D4e",
+    "bnb": "0x612283553FDaC711ee03f685E9A2637Fd3Fd6D4e"
 }
 
 COIN_ADDRESS_COMMANDS = {
