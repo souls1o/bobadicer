@@ -43,7 +43,7 @@ LISTEN_ROLES = [1258727325265297408, 1258732498482106398]
 VALIDATORS = {"bet_validator": bet_validator}
 
 DM_GAMEMODES_TEXT = """**🎲 Dice Gamemodes**
-1. **I Win Ties** — FT3 → 20% MORE | FT5 → 30% MORE Bet
+1. **I Win Ties** — FT3 → 20% HIGHER BET | FT5 → 30% HIGHER BET
 2. **Fair** — 10% LOWER Bet"""
 
 
