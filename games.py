@@ -71,6 +71,16 @@ async def get_roll_command_before_embed(
     return None
 
 
+def _clear_bot_roll_wait(state, bot_user_id=None):
+    """Drop bot-wait flags so a new -roll is allowed."""
+    if bot_user_id is not None and state.get("roll_initiator_id") not in (None, bot_user_id):
+        return
+    state["waiting_for_embed"] = False
+    state["last_bot_roll_msg_id"] = None
+    if state.get("roll_initiator_id") == bot_user_id or bot_user_id is None:
+        state["roll_initiator_id"] = None
+
+
 async def trigger_bot_roll(roll_channel, form, bot_user):
     """Send exactly one bot -roll. Concurrent/duplicate calls are ignored."""
     state = form["game_state"]
@@ -88,19 +98,30 @@ async def trigger_bot_roll(roll_channel, form, bot_user):
         return
 
     state["bot_roll_in_flight"] = True
-    state["waiting_for_embed"] = True
-    state["roll_initiator_id"] = bot_user.id
     try:
         await asyncio.sleep(0.35)
         # Re-check after sleep in case state changed
         if state.get("pending_bot_total") is not None:
             return
+        if (
+            state.get("waiting_for_embed")
+            and state.get("roll_initiator_id") == bot_user.id
+            and state.get("last_bot_roll_msg_id")
+        ):
+            return
+
         hype = random.choice(config.ROLL_HYPE_MESSAGES)
         msg = await queued_send(roll_channel, f"-roll {hype}")
-        state["waiting_for_embed"] = True
-        state["roll_initiator_id"] = bot_user.id
+        # Only mark "waiting" after a real send — otherwise mid-game retries get blocked
         if msg is not None:
             state["last_bot_roll_msg_id"] = msg.id
+            state["waiting_for_embed"] = True
+            state["roll_initiator_id"] = bot_user.id
+        else:
+            _clear_bot_roll_wait(state, bot_user.id)
+    except Exception as exc:
+        print(f"[roll] bot -roll send failed: {exc}")
+        _clear_bot_roll_wait(state, bot_user.id)
     finally:
         state["bot_roll_in_flight"] = False
 
@@ -208,6 +229,7 @@ def _reset_round_state(state, ticket_user_id=None, *, skip_next_roll=False):
     state.pop("bot_first_embed_id", None)
     state["waiting_for_embed"] = False
     state["roll_initiator_id"] = None
+    state["last_bot_roll_msg_id"] = None
     if skip_next_roll:
         state["current_player"] = "you"
     else:
@@ -403,9 +425,6 @@ async def handle_roll_embed(message, form, bot_user, bot):
         you_total = state["user_totals_queue"].pop(0)
         state["bot_rolls_remaining"] = max(0, state.get("bot_rolls_remaining", 1) - 1)
         remaining = state["bot_rolls_remaining"]
-        state["waiting_for_embed"] = remaining > 0
-        if remaining > 0:
-            state["roll_initiator_id"] = bot_user.id
         state["consumed_embed_ids"].add(message.id)
         game_over = await _score_pair(
             message.channel, form, bot_user, bot, total, you_total,
@@ -415,15 +434,20 @@ async def handle_roll_embed(message, form, bot_user, bot):
         if game_over:
             return
         if remaining > 0:
+            # Must clear prior -roll wait flags or trigger_bot_roll no-ops forever
+            _clear_bot_roll_wait(state, bot_user.id)
             await trigger_bot_roll(message.channel, form, bot_user)
         else:
+            state["waiting_for_embed"] = False
             _try_activate_queued_user_rolls(state, ticket_user_id)
         return
 
-    # Expected a pair but lost the user total — do not start a fresh bot-first roll
+    # Expected a pair but lost the user total — unstick instead of blocking forever
     if state.get("bot_rolls_remaining", 0) > 0:
         state["consumed_embed_ids"].add(message.id)
-        print("[roll] bot embed arrived with empty user queue during batch — ignored")
+        state["bot_rolls_remaining"] = 0
+        _clear_bot_roll_wait(state, bot_user.id)
+        print("[roll] bot embed arrived with empty user queue during batch — cleared stuck batch")
         return
 
     # Bot went first this round
