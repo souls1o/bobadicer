@@ -36,7 +36,9 @@ def _normalize_name(text):
     """Normalize for comparison: drop ZWSP/markdown, collapse spaces, casefold."""
     if not text:
         return ""
+    import unicodedata
     cleaned = _strip_md(text)
+    cleaned = unicodedata.normalize("NFKC", cleaned)
     cleaned = re.sub(r"[\u200b\u200c\u200d\ufeff\u00a0]", "", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned.casefold()
@@ -61,7 +63,7 @@ def parse_roller_from_embed(message):
 
 
 def names_from_author(author):
-    """All name spellings discord.py exposes on a message author."""
+    """All name spellings discord.py exposes on a User/Member."""
     names = {
         getattr(author, "display_name", None),
         getattr(author, "global_name", None),
@@ -71,31 +73,50 @@ def names_from_author(author):
     return [n for n in names if n]
 
 
-def roller_matches_author(roller_name, author):
-    """True if embed '(name) rolled' matches the -roll author's display/user/nick."""
+async def resolve_member(guild, user_id):
+    if guild is None or user_id is None:
+        return None
+    member = guild.get_member(user_id)
+    if member is not None:
+        return member
+    try:
+        return await guild.fetch_member(user_id)
+    except Exception:
+        return None
+
+
+async def names_for_roller(guild, author):
+    """Prefer guild Member names (server nick is what Da Hood puts in embeds)."""
+    names = set(names_from_author(author))
+    member = await resolve_member(guild, getattr(author, "id", None))
+    if member is not None:
+        names.update(names_from_author(member))
+    return [n for n in names if n]
+
+
+async def roller_matches_author(roller_name, author, guild=None):
+    """AND helper: embed '(name) rolled' vs -roll author (guild-nick aware)."""
     if not roller_name or author is None:
         return False
     needle = _normalize_name(roller_name)
     if not needle:
         return False
-    for name in names_from_author(author):
+    for name in await names_for_roller(guild, author):
         if _normalize_name(name) == needle:
             return True
     return False
 
 
-async def _roll_cmd_for_user(channel, embed_message, user_id, *, required_msg_id=None):
-    """Find that user's -roll before this embed. Optionally require an exact message id."""
-    if required_msg_id is not None:
-        async for msg in channel.history(limit=40, before=embed_message):
-            if msg.id == required_msg_id and is_roll_command(msg.content) and msg.author.id == user_id:
-                return msg
-            if msg.id < required_msg_id:
-                break
-        return None
-    return await get_roll_command_before_embed(
-        channel, embed_message, initiator_id=user_id
-    )
+async def _find_nearest_roll_cmd(channel, embed_message, state):
+    """Most recent unconsumed -roll before this embed (same rule as working selfbot)."""
+    consumed = state.setdefault("consumed_roll_cmd_ids", set())
+    async for msg in channel.history(limit=50, before=embed_message):
+        if not is_roll_command(msg.content):
+            continue
+        if msg.id in consumed:
+            continue
+        return msg
+    return None
 
 
 async def get_ticket_channel(bot, form, fallback=None):
@@ -273,11 +294,14 @@ def _consume_user_roll_cmd(state, cmd_id):
         pending.remove(cmd_id)
         if state.get("pending_user_embeds", 0) > 0:
             state["pending_user_embeds"] -= 1
+        state.setdefault("consumed_roll_cmd_ids", set()).add(cmd_id)
         return True
     queued = state.get("queued_user_roll_ids", [])
     if cmd_id in queued:
         queued.remove(cmd_id)
+        state.setdefault("consumed_roll_cmd_ids", set()).add(cmd_id)
         return True
+    state.setdefault("consumed_roll_cmd_ids", set()).add(cmd_id)
     return False
 
 
@@ -446,14 +470,21 @@ async def do_next_roll(roll_channel, form, bot_user, bot):
 async def handle_roll_embed(message, form, bot_user, bot):
     state = form["game_state"]
     state.setdefault("consumed_embed_ids", set())
+    state.setdefault("consumed_roll_cmd_ids", set())
     if message.id in state["consumed_embed_ids"]:
         return
-    if not message.author.bot or not message.embeds:
+    # Da Hood may not always set .bot depending on client; allow by id too
+    if not message.embeds:
+        return
+    if not (message.author.bot or message.author.id == DA_HOOD_BOT_ID):
         return
 
     rolls = parse_roll_from_embed(message)
     if not rolls:
         return
+
+    # Claim immediately so concurrent handlers can't double-process after await
+    state["consumed_embed_ids"].add(message.id)
 
     total = rolls[0] + rolls[1]
     ticket_user_id = form["ticket_user_id"]
@@ -466,52 +497,54 @@ async def handle_roll_embed(message, form, bot_user, bot):
     state.setdefault("early_user_totals_by_cmd", {})
 
     bot_outstanding = _bot_roll_outstanding(state, bot_user.id)
-    last_bot = state.get("last_bot_roll_msg_id")
+    guild = getattr(message.channel, "guild", None)
 
     roller_name = parse_roller_from_embed(message)
     if not roller_name:
-        # Dump embed text so we can see why parse failed
         preview = " | ".join(p for p in _embed_text_parts(message) if p)[:240]
         print(f"[roll] no '(name) rolled' parsed — embed text: {preview!r}")
+        state["consumed_embed_ids"].discard(message.id)
         return
 
-    # Look up candidate -rolls, then AND with name vs that -roll author's display names
-    bot_cmd = await _roll_cmd_for_user(
-        message.channel,
-        message,
-        bot_user.id,
-        required_msg_id=last_bot if (bot_outstanding or _bot_embed_pending(state, bot_user.id)) else None,
-    )
-    if bot_cmd is None:
-        bot_cmd = await _roll_cmd_for_user(message.channel, message, bot_user.id)
+    # HARD RULE (same as working selfbot): nearest unconsumed -roll owns this embed
+    nearest = await _find_nearest_roll_cmd(message.channel, message, state)
+    if nearest is None:
+        print(f"[roll] AND fail: name={roller_name!r} but no unconsumed -roll before embed")
+        state["consumed_embed_ids"].discard(message.id)
+        return
 
-    user_cmd = await _roll_cmd_for_user(message.channel, message, ticket_user_id)
+    is_user_cmd = nearest.author.id == ticket_user_id
+    is_bot_cmd = nearest.author.id == bot_user.id
+    cmd = nearest
 
-    is_bot_cmd = False
-    is_user_cmd = False
-    cmd = None
+    if not is_user_cmd and not is_bot_cmd:
+        state["consumed_embed_ids"].discard(message.id)
+        return
 
-    bot_name_ok = bot_cmd is not None and roller_matches_author(roller_name, bot_cmd.author)
-    user_name_ok = user_cmd is not None and roller_matches_author(roller_name, user_cmd.author)
+    # AND: '(name) rolled' should match that -roll author's guild nick/display/username.
+    # Resolve Member so server nick is included (history authors are often bare Users).
+    author_names = await names_for_roller(guild, nearest.author)
+    needle = _normalize_name(roller_name)
 
-    if bot_name_ok and (bot_outstanding or _bot_embed_pending(state, bot_user.id) or is_bot_turn(state) or not user_name_ok):
-        # Prefer self when we owe a bot embed, or when only self matches
-        cmd = bot_cmd
-        is_bot_cmd = True
-    elif user_name_ok:
-        cmd = user_cmd
-        is_user_cmd = True
-    elif bot_name_ok:
-        cmd = bot_cmd
-        is_bot_cmd = True
-    else:
+    def _name_hits(n):
+        target = _normalize_name(n)
+        if not target:
+            return False
+        return needle == target or needle.startswith(target) or target.startswith(needle)
+
+    name_ok = any(_name_hits(n) for n in author_names) if author_names else False
+    if author_names and not name_ok:
+        # Do not softlock the game: nearest -roll already identifies the roller.
+        # Log the mismatch so we can see what Da Hood prints vs Discord names.
         print(
-            f"[roll] AND fail: embed_name={roller_name!r} "
-            f"self_names={names_from_author(bot_cmd.author) if bot_cmd else None} "
-            f"player_names={names_from_author(user_cmd.author) if user_cmd else None} "
-            f"bot_cmd={getattr(bot_cmd, 'id', None)} user_cmd={getattr(user_cmd, 'id', None)}"
+            f"[roll] name mismatch (continuing via -roll): embed_name={roller_name!r} "
+            f"roll_author={nearest.author.id} names={author_names}"
         )
-        return
+    elif not author_names:
+        print(
+            f"[roll] warning: no guild names for author {nearest.author.id}; "
+            f"accepting via -roll (embed_name={roller_name!r})"
+        )
 
     # Out-of-turn / early user embed while self still owed an embed
     if is_user_cmd and (
@@ -531,11 +564,10 @@ async def handle_roll_embed(message, form, bot_user, bot):
         return
 
     # --- Player embed ---
-    if is_user_cmd and not is_bot_cmd:
+    if is_user_cmd:
         _try_activate_queued_user_rolls(state, ticket_user_id)
 
         if pending_bot_total is not None:
-            state["consumed_embed_ids"].add(message.id)
             await _pair_pending_bot_with_user_total(
                 message.channel, form, bot_user, bot, total, cmd_id=cmd.id
             )
@@ -545,15 +577,13 @@ async def handle_roll_embed(message, form, bot_user, bot):
         return
 
     # --- Bot embed ---
-    if not is_bot_cmd:
-        return
+    state.setdefault("consumed_roll_cmd_ids", set()).add(cmd.id)
 
     # Pair with queued player totals
     if state["user_totals_queue"]:
         you_total = state["user_totals_queue"].pop(0)
         state["bot_rolls_remaining"] = max(0, state.get("bot_rolls_remaining", 1) - 1)
         remaining = state["bot_rolls_remaining"]
-        state["consumed_embed_ids"].add(message.id)
         game_over = await _score_pair(
             message.channel, form, bot_user, bot, total, you_total,
             continue_batch=remaining > 0,
@@ -570,7 +600,6 @@ async def handle_roll_embed(message, form, bot_user, bot):
         return
 
     if state.get("bot_rolls_remaining", 0) > 0:
-        state["consumed_embed_ids"].add(message.id)
         state["bot_rolls_remaining"] = 0
         _clear_bot_roll_wait(state, bot_user.id)
         print("[roll] bot embed arrived with empty user queue during batch — cleared stuck batch")
@@ -584,7 +613,6 @@ async def handle_roll_embed(message, form, bot_user, bot):
     state["waiting_for_embed"] = False
     state["roll_initiator_id"] = None
     state["last_bot_roll_msg_id"] = None
-    state["consumed_embed_ids"].add(message.id)
     _try_activate_queued_user_rolls(state, ticket_user_id)
 
     # Out-of-turn user embed already arrived — score with correct me/you sides
@@ -639,6 +667,7 @@ async def start_game(channel, form, bot_user, bot=None):
         "awaiting_user_after_bot": False,
         "bot_first_embed_id": None,
         "consumed_embed_ids": set(),
+        "consumed_roll_cmd_ids": set(),
         "pending_user_embeds": 0,
         "pending_roll_message_ids": [],
         "queued_user_roll_ids": [],
