@@ -10,6 +10,7 @@ from state import save_session_from_form
 
 DA_HOOD_BOT_ID = 1200925985999171706
 ROLL_EMBED_PATTERN = re.compile(r"(\d+)\s*(?:&|\+)\s*(\d+)")
+# Da Hood format: "(display_name) rolled 5 & 6"
 ROLLER_EMBED_PATTERN = re.compile(r"\(([^)]+)\)\s*rolled", re.IGNORECASE)
 
 
@@ -21,11 +22,24 @@ def _embed_text_parts(message):
     for field in embed.fields:
         parts.append(field.name or "")
         parts.append(field.value or "")
-    # Author name on the embed is often the roller
-    author = getattr(embed, "author", None)
-    if author is not None and getattr(author, "name", None):
-        parts.append(author.name)
+    footer = getattr(embed, "footer", None)
+    if footer is not None and getattr(footer, "text", None):
+        parts.append(footer.text)
     return parts
+
+
+def _strip_md(text):
+    return re.sub(r"[*_`~|]", "", text or "")
+
+
+def _normalize_name(text):
+    """Normalize for comparison: drop ZWSP/markdown, collapse spaces, casefold."""
+    if not text:
+        return ""
+    cleaned = _strip_md(text)
+    cleaned = re.sub(r"[\u200b\u200c\u200d\ufeff\u00a0]", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned.casefold()
 
 
 def parse_roll_from_embed(message):
@@ -37,50 +51,43 @@ def parse_roll_from_embed(message):
 
 
 def parse_roller_from_embed(message):
+    """Extract display name from '(name) rolled …'."""
     for text in _embed_text_parts(message):
-        match = ROLLER_EMBED_PATTERN.search(text)
+        clean = _strip_md(text)
+        match = ROLLER_EMBED_PATTERN.search(clean)
         if match:
             return match.group(1).strip()
-    embed = message.embeds[0] if message.embeds else None
-    author = getattr(embed, "author", None) if embed else None
-    if author is not None and getattr(author, "name", None):
-        return author.name.strip()
     return None
 
 
-async def get_roll_names_for_user(channel, user_id):
-    guild = getattr(channel, "guild", None)
-    if guild is None:
-        return []
-    member = guild.get_member(user_id)
-    if member is None:
-        try:
-            member = await guild.fetch_member(user_id)
-        except Exception:
-            return []
-    names = {member.display_name, member.name}
-    global_name = getattr(member, "global_name", None)
-    if global_name:
-        names.add(global_name)
-    return [name for name in names if name]
+def names_from_author(author):
+    """All name spellings discord.py exposes on a message author."""
+    names = {
+        getattr(author, "display_name", None),
+        getattr(author, "global_name", None),
+        getattr(author, "name", None),
+        getattr(author, "nick", None),
+    }
+    return [n for n in names if n]
 
 
-async def embed_belongs_to_user(message, channel, user_id):
-    """True/False if embed has a roller name; None if no name could be parsed."""
-    roller = parse_roller_from_embed(message)
-    if not roller:
-        return None
-    names = await get_roll_names_for_user(channel, user_id)
-    if not names:
+def roller_matches_author(roller_name, author):
+    """True if embed '(name) rolled' matches the -roll author's display/user/nick."""
+    if not roller_name or author is None:
         return False
-    roller_l = roller.casefold()
-    return any(roller_l == name.casefold() for name in names)
+    needle = _normalize_name(roller_name)
+    if not needle:
+        return False
+    for name in names_from_author(author):
+        if _normalize_name(name) == needle:
+            return True
+    return False
 
 
 async def _roll_cmd_for_user(channel, embed_message, user_id, *, required_msg_id=None):
     """Find that user's -roll before this embed. Optionally require an exact message id."""
     if required_msg_id is not None:
-        async for msg in channel.history(limit=30, before=embed_message):
+        async for msg in channel.history(limit=40, before=embed_message):
             if msg.id == required_msg_id and is_roll_command(msg.content) and msg.author.id == user_id:
                 return msg
             if msg.id < required_msg_id:
@@ -461,50 +468,66 @@ async def handle_roll_embed(message, form, bot_user, bot):
     bot_outstanding = _bot_roll_outstanding(state, bot_user.id)
     last_bot = state.get("last_bot_roll_msg_id")
 
-    belongs_bot = await embed_belongs_to_user(message, message.channel, bot_user.id)
-    belongs_user = await embed_belongs_to_user(message, message.channel, ticket_user_id)
+    roller_name = parse_roller_from_embed(message)
+    if not roller_name:
+        # Dump embed text so we can see why parse failed
+        preview = " | ".join(p for p in _embed_text_parts(message) if p)[:240]
+        print(f"[roll] no '(name) rolled' parsed — embed text: {preview!r}")
+        return
 
-    # AND validation: roller name must match AND a matching -roll must exist.
-    # No name / no matching -roll → ignore (do not guess).
-    if belongs_bot is True:
-        cmd = await _roll_cmd_for_user(
-            message.channel,
-            message,
-            bot_user.id,
-            required_msg_id=last_bot if bot_outstanding else None,
-        )
-        if cmd is None:
-            # Outstanding bot roll id not found — try any bot -roll before embed
-            cmd = await _roll_cmd_for_user(message.channel, message, bot_user.id)
-        if cmd is None or cmd.author.id != bot_user.id:
-            print("[roll] bot embed name matched but no matching -roll — ignored")
-            return
+    # Look up candidate -rolls, then AND with name vs that -roll author's display names
+    bot_cmd = await _roll_cmd_for_user(
+        message.channel,
+        message,
+        bot_user.id,
+        required_msg_id=last_bot if (bot_outstanding or _bot_embed_pending(state, bot_user.id)) else None,
+    )
+    if bot_cmd is None:
+        bot_cmd = await _roll_cmd_for_user(message.channel, message, bot_user.id)
+
+    user_cmd = await _roll_cmd_for_user(message.channel, message, ticket_user_id)
+
+    is_bot_cmd = False
+    is_user_cmd = False
+    cmd = None
+
+    bot_name_ok = bot_cmd is not None and roller_matches_author(roller_name, bot_cmd.author)
+    user_name_ok = user_cmd is not None and roller_matches_author(roller_name, user_cmd.author)
+
+    if bot_name_ok and (bot_outstanding or _bot_embed_pending(state, bot_user.id) or is_bot_turn(state) or not user_name_ok):
+        # Prefer self when we owe a bot embed, or when only self matches
+        cmd = bot_cmd
         is_bot_cmd = True
-        is_user_cmd = False
-    elif belongs_user is True:
-        cmd = await _roll_cmd_for_user(message.channel, message, ticket_user_id)
-        if cmd is None or cmd.author.id != ticket_user_id:
-            print("[roll] user embed name matched but no matching -roll — ignored")
-            return
-        is_bot_cmd = False
+    elif user_name_ok:
+        cmd = user_cmd
         is_user_cmd = True
+    elif bot_name_ok:
+        cmd = bot_cmd
+        is_bot_cmd = True
+    else:
+        print(
+            f"[roll] AND fail: embed_name={roller_name!r} "
+            f"self_names={names_from_author(bot_cmd.author) if bot_cmd else None} "
+            f"player_names={names_from_author(user_cmd.author) if user_cmd else None} "
+            f"bot_cmd={getattr(bot_cmd, 'id', None)} user_cmd={getattr(user_cmd, 'id', None)}"
+        )
+        return
 
-        # Out-of-turn / early user embed while self still owed an embed
-        if bot_outstanding or (
+    # Out-of-turn / early user embed while self still owed an embed
+    if is_user_cmd and (
+        bot_outstanding
+        or (
             is_bot_turn(state)
             and state.get("pending_bot_total") is None
             and not state.get("awaiting_user_after_bot")
+        )
+    ):
+        _stash_early_user_total(state, cmd.id, total, message.id)
+        if (
+            cmd.id not in state.get("queued_user_roll_ids", [])
+            and cmd.id not in state.get("pending_roll_message_ids", [])
         ):
-            _stash_early_user_total(state, cmd.id, total, message.id)
-            if (
-                cmd.id not in state.get("queued_user_roll_ids", [])
-                and cmd.id not in state.get("pending_roll_message_ids", [])
-            ):
-                _queue_out_of_turn_user_roll(state, cmd.id)
-            return
-    else:
-        # Missing name, or name matches neither player — reject
-        print("[roll] embed roller name missing or unmatched — ignored")
+            _queue_out_of_turn_user_roll(state, cmd.id)
         return
 
     # --- Player embed ---
@@ -518,14 +541,10 @@ async def handle_roll_embed(message, form, bot_user, bot):
             )
             return
 
-        if state.get("pending_user_embeds", 0) <= 0 and not state.get("pending_roll_message_ids"):
-            # Name+-roll matched, but this roll wasn't registered — still accept via handle
-            pass
-
         await _handle_user_roll_embed(message, form, bot_user, bot, total, cmd=cmd)
         return
 
-    # --- Bot embed (name AND -roll both matched self) ---
+    # --- Bot embed ---
     if not is_bot_cmd:
         return
 
