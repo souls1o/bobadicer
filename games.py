@@ -144,6 +144,17 @@ def _bot_roll_outstanding(state, bot_user_id):
     )
 
 
+def _bot_embed_pending(state, bot_user_id):
+    """True when a -roll was already sent and its embed is still owed (not merely in-flight)."""
+    if state.get("pending_bot_total") is not None:
+        return False
+    return bool(
+        state.get("last_bot_roll_msg_id")
+        and state.get("waiting_for_embed")
+        and state.get("roll_initiator_id") == bot_user_id
+    )
+
+
 def _queue_out_of_turn_user_roll(state, message_id):
     queued = state.setdefault("queued_user_roll_ids", [])
     if message_id not in queued and message_id not in state.get("pending_roll_message_ids", []):
@@ -204,10 +215,11 @@ async def trigger_bot_roll(roll_channel, form, bot_user):
     state["bot_roll_in_flight"] = True
     try:
         await asyncio.sleep(0.35)
-        # Re-check after sleep in case state changed
+        # Re-check after sleep in case state changed — do NOT use
+        # _bot_roll_outstanding here (it is True while we hold in_flight).
         if state.get("pending_bot_total") is not None:
             return
-        if _bot_roll_outstanding(state, bot_user.id):
+        if _bot_embed_pending(state, bot_user.id):
             return
 
         hype = random.choice(config.ROLL_HYPE_MESSAGES)
