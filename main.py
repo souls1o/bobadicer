@@ -22,6 +22,19 @@ from state import active_forms, clear_ticket_session, get_form, is_ticket_channe
 bot = commands.Bot(command_prefix="!", self_bot=True)
 
 
+async def _try_handle_dice_embed(message, form):
+    """Process Da Hood dice embeds during an active game."""
+    if not form or "game_state" not in form:
+        return False
+    state = form["game_state"]
+    if state.get("game_type") != "dice" or not message.embeds:
+        return False
+    if not (message.author.bot or message.author.id == DA_HOOD_BOT_ID):
+        return False
+    await handle_da_hood_message(message, form, bot.user, bot)
+    return True
+
+
 def set_auto_post_channel_id(channel_id):
     old_id = config.AUTO_POST_CHANNEL_ID
     config.AUTO_POST_CHANNEL_ID = channel_id
@@ -193,6 +206,22 @@ async def on_guild_channel_delete(channel):
 
 
 @bot.event
+async def on_message_edit(before, after):
+    """Da Hood often adds roll embeds via message edit — on_message alone misses those."""
+    if after.author == bot.user:
+        return
+    if not isinstance(after.channel, discord.TextChannel):
+        return
+    if not after.embeds:
+        return
+    try:
+        form = get_form(after.channel.id)
+        await _try_handle_dice_embed(after, form)
+    except Exception as exc:
+        print(f"[on_message_edit] error in #{getattr(after.channel, 'name', '?')}: {exc}")
+
+
+@bot.event
 async def on_message(message: discord.Message):
     if message.author == bot.user:
         return
@@ -271,15 +300,9 @@ async def _handle_message(message: discord.Message):
         return
 
     if form and "game_state" in form:
-        state = form["game_state"]
-        # Always feed roll embeds into the game while dice is active —
-        # never gate on waiting flags (embeds can arrive before state updates).
-        if state.get("game_type") == "dice" and (
-            message.author.bot or message.author.id == DA_HOOD_BOT_ID
-        ) and message.embeds:
-            await handle_da_hood_message(message, form, bot.user, bot)
+        if await _try_handle_dice_embed(message, form):
             return
-        if message.author.id == DA_HOOD_BOT_ID:
+        if message.author.id == DA_HOOD_BOT_ID and message.embeds:
             await handle_da_hood_message(message, form, bot.user, bot)
             return
 
