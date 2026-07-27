@@ -15,6 +15,7 @@ from forms import (
     was_bot_added_to_channel,
 )
 from games import DA_HOOD_BOT_ID, handle_da_hood_message, handle_user_roll, start_game
+from cooldowns import acquire_command_cooldown
 from send_queue import ensure_worker, queued_reply, queued_send
 from services import get_house_balance_text
 from state import active_forms, clear_ticket_session, get_form, is_ticket_channel, is_ticket_closed, is_testing_mode, ticket_has_played, toggle_testing
@@ -100,7 +101,7 @@ def ensure_auto_post():
 @bot.event
 async def on_ready():
     print(f"✅ Selfbot logged in as {bot.user} (ID: {bot.user.id})")
-    ensure_worker()
+    await ensure_worker()
     channel = await resolve_auto_post_channel()
     if channel is None:
         print(f"[auto_post] no #{config.AUTO_POST_CHANNEL_NAME} channel found at startup")
@@ -237,20 +238,40 @@ async def _handle_message(message: discord.Message):
         content = message.content.strip().lower()
 
         if content == "!help":
+            remaining = acquire_command_cooldown(message.channel.id, content)
+            if remaining is not None:
+                await queued_reply(message, f"⏳ Wait {remaining:.0f}s before using `{content}` again.")
+                return
             await queued_reply(message, build_dm_help_text(message.author.id))
             return
         if content == "!gamemodes":
+            remaining = acquire_command_cooldown(message.channel.id, content)
+            if remaining is not None:
+                await queued_reply(message, f"⏳ Wait {remaining:.0f}s before using `{content}` again.")
+                return
             await queued_reply(message, build_dm_gamemodes_text())
             return
         if content == "!housebal":
+            remaining = acquire_command_cooldown(message.channel.id, content)
+            if remaining is not None:
+                await queued_reply(message, f"⏳ Wait {remaining:.0f}s before using `{content}` again.")
+                return
             await queued_reply(message, await get_house_balance_text())
             return
         if content == "!toggle testing" and message.author.id == config.ADMIN_USER_ID:
+            remaining = acquire_command_cooldown(message.channel.id, content)
+            if remaining is not None:
+                await queued_reply(message, f"⏳ Wait {remaining:.0f}s before using `{content}` again.")
+                return
             enabled = toggle_testing()
             status = "enabled" if enabled else "disabled"
             await queued_reply(message, f"Testing mode is {status}.")
             return
         if message.author.id == config.ADMIN_USER_ID and content.startswith("!setchannel"):
+            remaining = acquire_command_cooldown(message.channel.id, "!setchannel")
+            if remaining is not None:
+                await queued_reply(message, f"⏳ Wait {remaining:.0f}s before using `!setchannel` again.")
+                return
             parts = message.content.strip().split(maxsplit=1)
             if len(parts) < 2:
                 await queued_reply(message, "Usage: `!setchannel <channel_id>`")

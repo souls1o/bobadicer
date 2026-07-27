@@ -36,6 +36,11 @@ AUTO_POST_CHANNEL_ID = 1524789293607026879
 AUTO_POST_CHANNEL_NAME = "lf-players"
 AUTO_POST_INTERVAL = 300
 
+# Minimum gap between any two outbound self messages (global queue).
+SEND_MIN_INTERVAL = 0.5
+# Per-channel cooldown before the same command can be used again.
+COMMAND_COOLDOWN_SECONDS = 3.0
+
 GAME_LOG_CHANNEL_ID = 1258789286388568134
 VOUCH_CHANNEL_ID = 1258789148702146700
 

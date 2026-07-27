@@ -20,6 +20,7 @@ from bets import (
     usd_to_smallest_unit,
 )
 from services import get_deposit_address, send_apirone
+from cooldowns import acquire_command_cooldown
 from send_queue import queued_reply, queued_send
 from state import (
     active_forms,
@@ -404,6 +405,10 @@ async def handle_ticket_command(message, bot_user, bot=None):
     content = message.content.strip().lower()
 
     if content in config.COIN_ADDRESS_COMMANDS:
+        remaining = acquire_command_cooldown(message.channel.id, content)
+        if remaining is not None:
+            await queued_reply(message, f"⏳ Wait {remaining:.0f}s before using `{content}` again.")
+            return True
         coin = config.COIN_ADDRESS_COMMANDS[content]
         address = get_deposit_address(coin)
         if address:
@@ -413,10 +418,18 @@ async def handle_ticket_command(message, bot_user, bot=None):
         return True
 
     if content == "!hold":
+        remaining = acquire_command_cooldown(message.channel.id, content)
+        if remaining is not None:
+            await queued_reply(message, f"⏳ Wait {remaining:.0f}s before using `{content}` again.")
+            return True
         await handle_hold_command(message)
         return True
 
     if content == "!rerun":
+        remaining = acquire_command_cooldown(message.channel.id, content)
+        if remaining is not None:
+            await queued_reply(message, f"⏳ Wait {remaining:.0f}s before using `{content}` again.")
+            return True
         await handle_rerun_command(message, bot_user, bot)
         return True
 
