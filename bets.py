@@ -31,7 +31,7 @@ def extract_crypto_address(text, _coin=None):
 
 
 def get_max_bet(form):
-    return 30
+    return 50
 
 
 def format_bet_display(value):
@@ -98,6 +98,28 @@ def get_hold_usd(form):
     return max(0.0, round(float(form.get("winnings_usd", 0.0)), 8))
 
 
+def ticket_profit_usd(form):
+    """Net ticket profit = hold minus bot wagers funded on this ticket."""
+    profit = get_hold_usd(form) - float(form.get("total_wagered_usd", 0.0))
+    return round(profit, 2) if profit > 0 else 0.0
+
+
+def get_profit_tip_usd(profit_usd):
+    profit_usd = max(0.0, float(profit_usd))
+    if profit_usd <= 0:
+        return 0.0
+    return round(profit_usd * config.PROFIT_TIP_RATE, 2)
+
+
+def format_address_with_profit_tip(address, profit_usd):
+    if not address:
+        return address
+    tip = get_profit_tip_usd(profit_usd)
+    if tip <= 0:
+        return f"`{address}`"
+    return f"`{address}` (YOUR TIP: ${format_bet_display(tip)})"
+
+
 def sync_hold_crypto(form, coin=COIN):
     usd = get_hold_usd(form)
     form["winnings_usd"] = usd
@@ -136,5 +158,5 @@ def bet_validator(response, form=None):
     if len(parts) == 2 and normalize_coin(parts[1]) != COIN:
         return False
     if not form:
-        return 1 <= amount <= 30
+        return 1 <= amount <= 50
     return 1 <= amount <= get_max_bet(form)

@@ -9,6 +9,7 @@ from bets import (
     calculate_my_bet,
     deduct_hold_up_to,
     extract_crypto_address,
+    format_address_with_profit_tip,
     format_bet_display,
     get_bet_info,
     get_hold_usd,
@@ -28,6 +29,7 @@ from state import (
     finish_form,
     get_form,
     get_hold_data,
+    get_ticket_profit_usd,
     get_ticket_session,
     is_ticket_channel,
     is_ticket_closed,
@@ -424,7 +426,10 @@ async def handle_ticket_command(message, bot_user, bot=None):
         coin = config.COIN_ADDRESS_COMMANDS[content]
         address = get_deposit_address(coin)
         if address:
-            await queued_send(message.channel, f"`{address}`")
+            await queued_send(
+                message.channel,
+                format_address_with_profit_tip(address, get_ticket_profit_usd(message.channel.id)),
+            )
         else:
             await queued_send(message.channel, f"❌ No {coin.upper()} address configured.")
         return True

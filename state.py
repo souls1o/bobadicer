@@ -1,5 +1,5 @@
 import config
-from bets import get_hold_usd, usd_to_crypto_amount
+from bets import get_hold_usd, ticket_profit_usd, usd_to_crypto_amount
 
 active_forms = {}
 ticket_channels = set()
@@ -112,6 +112,12 @@ def get_hold_data(channel_id):
     usd = get_hold_usd(source)
     crypto = round(usd_to_crypto_amount(usd, coin), 8) if usd > 0 else 0.0
     return usd, crypto, coin
+
+
+def get_ticket_profit_usd(channel_id):
+    form = active_forms.get(channel_id)
+    source = form if form else get_ticket_session(channel_id)
+    return ticket_profit_usd(source)
 
 
 def new_form_dict(channel_id, ticket_user_id):
