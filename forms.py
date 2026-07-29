@@ -61,10 +61,9 @@ def build_dm_help_text(user_id):
         "!gamemodes — dice gamemode info",
         "!housebal — house LTC balance in USD",
         "",
-        "**🎟️ Ticket commands**",
+        "**🎟️ Ticket-Only Commands**",
         "`!hold` — show current winnings for this ticket",
         "`!rerun` — start a new form in this ticket (keeps hold)",
-        "`!ltc` / `!btc` / `!eth` / `!bnb` / `!tron` / `!sol` — deposit addresses",
     ]
     if user_id == config.ADMIN_USER_ID:
         lines.extend([
