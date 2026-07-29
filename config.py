@@ -45,15 +45,14 @@ GAME_LOG_CHANNEL_ID = 1258789286388568134
 VOUCH_CHANNEL_ID = 1258789148702146700
 
 ROLL_HYPE_MESSAGES = [
-    "Sir Boba",
     "6&6",
-    "Lord Tapioca",
-    "rigged",
-    "LOL",
-    "ggs",
     "1&1",
-    "🧋",
-    "🥀"
+    "🥚",
+    "🥀",
+    "🍳",
+    "wraps",
+    "on my soul it's a 12",
+    "it’s rigged"
 ]
 
 # Channels where ticket scanning / form start is ignored (IDs and/or names)
@@ -65,10 +64,10 @@ CHANNEL_BLACKLIST = [
     "cmds"
 ]
 
-AUTO_POST_MESSAGE = """<:Dices:1259259866254676049> **Dicing** from **$1** up to **$25** — make a ticket, **I'm fully automated** 🤖
+AUTO_POST_MESSAGE = """<:Dices:1259259866254676049> **Dicing** from **$1** up to **$30** — create a ticket, **I'm fully automated** 🤖
 
-<:Dices:1259259866254676049> **__I Win Ties__ | FT3 -> I offer 20% HIGHER bet / FT5 -> I offer 30% HIGHER bet**
-<:Dices:1259259866254676049> **__Fair__ | FT3/FT5 -> I offer 10% LOWER bet**
+<:Dices:1259259866254676049> **I Win Ties:FT3 → I offer 20% HIGHER bet / FT5 → I offer 30% HIGHER bet**
+<:Dices:1259259866254676049> **Fair:FT3/FT5 → I offer 10% LOWER bet**
 """
 
 FORM_QUESTIONS = [
@@ -88,7 +87,7 @@ FORM_QUESTIONS = [
     },
     {
         "type": "choice",
-        "text": """🧋 First to how many?
+        "text": """🥚 First to how many?
 1. FT3
 2. FT5
 3. Random
@@ -104,7 +103,7 @@ FORM_QUESTIONS = [
     },
     {
         "type": "open",
-        "text": '🎲 **How much would you like to bet?**\n\n**(MIN: __1$__ | MAX: __25$__)**\n\n-# @mention',
+        "text": '<:Dices:1259259866254676049> **How much would you like to bet?**\n\n**(MIN: __1$__ | MAX: __30$__)**\n\n-# @mention',
         "short_key": "bet",
         "validator": "bet_validator"
     },
@@ -114,15 +113,15 @@ FORM_QUESTIONS = [
     },
     {
         "type": "choice",
-        "text": """👤 Who goes first?
+        "text": """👤 Who rolls first?
 
-1. @bobadice
+1. @eggdicer
 2. @mention
 3. Random
 
 -# @mention""",
         "mapping": {
-            "@bobadice 1": ["1", "you", "@bobadice"],
+            "@eggdicer 1": ["1", "you", "@eggdicer"],
             "@mention 1": ["2", "me", "@mention"],
             "random": ["3", "random", "r"]
         },
@@ -134,13 +133,11 @@ FORM_QUESTIONS = [
 
 1. Normal Mode
 2. Crazy Mode
-3. Random
 
 -# @mention""",
         "mapping": {
             "normal": ["1", "normal", "normal mode", "n"],
             "crazy": ["2", "crazy", "crazy mode", "c"],
-            "random": ["3", "random", "r"]
         },
         "short_key": "mode"
     },

@@ -5,9 +5,7 @@ import discord
 import config
 
 _lock = asyncio.Lock()
-_worker_task = None
-_worker_lock = asyncio.Lock()
-_queue = asyncio.Queue()
+_last_send_at = 0.0
 
 
 async def _send_with_retry(send_coro_factory):
@@ -26,45 +24,34 @@ async def _send_with_retry(send_coro_factory):
             raise
 
 
-async def _worker():
-    while True:
-        send_coro_factory, future = await _queue.get()
-        try:
-            result = await _send_with_retry(send_coro_factory)
-            if not future.done():
-                future.set_result(result)
-        except Exception as exc:
-            print(f"[send_queue] send failed: {exc}")
-            if not future.done():
-                future.set_exception(exc)
-        finally:
-            await asyncio.sleep(config.SEND_MIN_INTERVAL)
-            _queue.task_done()
+async def _paced_send(send_coro_factory):
+    """Serialize all outbound sends globally with a minimum gap between them."""
+    global _last_send_at
+    async with _lock:
+        loop = asyncio.get_running_loop()
+        now = loop.time()
+        delay = config.SEND_MIN_INTERVAL - (now - _last_send_at)
+        if delay > 0:
+            await asyncio.sleep(delay)
+        result = await _send_with_retry(send_coro_factory)
+        _last_send_at = loop.time()
+        return result
 
 
 async def ensure_worker():
-    global _worker_task
-    async with _worker_lock:
-        if _worker_task is None or _worker_task.done():
-            _worker_task = asyncio.create_task(_worker())
-
-
-async def _enqueue(send_coro_factory):
-    await ensure_worker()
-    future = asyncio.get_running_loop().create_future()
-    await _queue.put((send_coro_factory, future))
-    return await future
+    """Kept for compatibility — pacing uses a lock, no background worker."""
+    return
 
 
 async def queued_send(channel, content, **kwargs):
     async def _factory():
         return await channel.send(content, **kwargs)
 
-    return await _enqueue(_factory)
+    return await _paced_send(_factory)
 
 
 async def queued_reply(message, content, **kwargs):
     async def _factory():
         return await message.reply(content, **kwargs)
 
-    return await _enqueue(_factory)
+    return await _paced_send(_factory)

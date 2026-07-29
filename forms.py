@@ -114,7 +114,7 @@ def is_adder_confirm(content):
 
 def message_references_bot(message, bot_user):
     content = message.content or ""
-    if "bobadice" in content.lower():
+    if "eggdicer" in content.lower():
         return True
     if str(bot_user.id) in content:
         return True
@@ -236,7 +236,7 @@ def ticket_mention(channel, form):
 
 def format_text(text, mention, responses, bot_user, dynamic=None):
     dynamic = dynamic or {}
-    result = text.replace("@mention", mention).replace("@bobadice", bot_user.mention)
+    result = text.replace("@mention", mention).replace("@eggdicer", bot_user.mention)
     for key, value in {**responses, **dynamic}.items():
         result = result.replace(f"{{{key}}}", str(value))
     return result
@@ -247,7 +247,7 @@ def build_confirm_text(channel, form, bot_user):
     responses = form.get("responses", {})
     first_to = responses.get("first_to", "ft3")
     gamemode_key = responses.get("gamemode", "fair")
-    first = responses.get("first", "@bobadice 1").replace("@mention", mention).replace("@bobadice", bot_user.mention)
+    first = responses.get("first", "@eggdicer 1").replace("@mention", mention).replace("@eggdicer", bot_user.mention)
     mode = responses.get("mode", "normal")
     mode_part = "" if mode == "normal" else f"{mode} "
 
@@ -263,6 +263,15 @@ async def _skip_payment_step(channel, form, bot_user):
     wager_usd = get_wager_usd(form)
     add_wagered_usd(form, wager_usd)
     form["payout_address"] = "testing"
+    form["waiting_for_address"] = False
+    save_session_from_form(channel.id, form)
+    form["step"] += 1
+    await ask_next_step(channel, bot_user)
+
+
+async def _use_hold_for_wager_step(channel, form, bot_user):
+    """Hold covers the bot wager — skip the address prompt and go to confirm."""
+    form["pending_hold_deduction"] = True
     form["waiting_for_address"] = False
     save_session_from_form(channel.id, form)
     form["step"] += 1
@@ -343,6 +352,9 @@ async def ask_next_step(channel, bot_user):
     if q["type"] == "listen_address":
         if should_skip_payment(form):
             await _skip_payment_step(channel, form, bot_user)
+            return
+        if get_hold_usd(form) >= get_wager_usd(form):
+            await _use_hold_for_wager_step(channel, form, bot_user)
             return
         dynamic.update({
             "coin": normalize_coin(),
