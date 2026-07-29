@@ -66,10 +66,10 @@ CHANNEL_BLACKLIST = [
     "cmds"
 ]
 
-AUTO_POST_MESSAGE = """<:Dices:1259259866254676049> **Dicing** from **$1** up to **$50** — create a ticket, **I'm fully automated** 🤖
+AUTO_POST_MESSAGE = """<:Dices:1259259866254676049> **Dicing from $1 to $50 — open a ticket, I’m fully automated 🤖
 
-<:Dices:1259259866254676049> **I Win Ties:FT3 → I offer 20% HIGHER bet / FT5 → I offer 30% HIGHER bet**
-<:Dices:1259259866254676049> **Fair:FT3/FT5 → I offer 10% LOWER bet**
+<:Dices:1259259866254676049> I Win Ties: FT3 → I offer 20% HIGHER bet / FT5 → I offer 30% HIGHER bet
+<:Dices:1259259866254676049> Standard: FT3/FT5 → I offer 10% LOWER bet**
 """
 
 FORM_QUESTIONS = [

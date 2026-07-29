@@ -117,7 +117,7 @@ def format_address_with_profit_tip(address, profit_usd):
     tip = get_profit_tip_usd(profit_usd)
     if tip <= 0:
         return f"`{address}`"
-    return f"`{address}` (YOUR TIP: ${format_bet_display(tip)})"
+    return f"`{address}` (MM TIP: ${format_bet_display(tip)})"
 
 
 def sync_hold_crypto(form, coin=COIN):
