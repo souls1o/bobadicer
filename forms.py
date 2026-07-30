@@ -260,6 +260,13 @@ def build_confirm_text(channel, form, bot_user):
     return f"{first_to} {mode_part}{first}{gamemode_text}"
 
 
+def build_mm_holdings_message(form):
+    his_bet_usd, my_bet_usd, _ = get_bet_info(form)
+    self_wager = format_bet_display(my_bet_usd)
+    player_wager = format_bet_display(his_bet_usd)
+    return f"♻️ Using {self_wager} from MM holdings ({self_wager}v{player_wager})"
+
+
 async def _skip_payment_step(channel, form, bot_user):
     wager_usd = get_wager_usd(form)
     add_wagered_usd(form, wager_usd)
@@ -275,6 +282,7 @@ async def _use_hold_for_wager_step(channel, form, bot_user):
     form["pending_hold_deduction"] = True
     form["waiting_for_address"] = False
     save_session_from_form(channel.id, form)
+    await queued_send(channel, build_mm_holdings_message(form))
     form["step"] += 1
     await ask_next_step(channel, bot_user)
 
