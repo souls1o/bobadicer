@@ -2,8 +2,6 @@ import asyncio
 import random
 import re
 
-import discord
-
 import config
 from forms import is_roll_command
 from postgame import end_game
@@ -309,19 +307,15 @@ async def do_next_roll(roll_channel, form, bot_user, bot):
         return
     if state.get("bot_roll_in_flight") or state.get("scoring"):
         return
-
     if state.get("pending_bot_roll_cmd_id"):
-        if not await _try_recover_pending_bot_embed(roll_channel, form, bot_user, bot):
-            return
-
+        return
+    # Recover from stale wait flags (send failed or embed handler rejected)
     if state.get("waiting_for_embed") and state.get("roll_initiator_id") == bot_user.id:
-        if state.get("user_totals_queue") or state.get("pending_bot_total") is not None:
+        if not state.get("user_totals_queue") and state.get("pending_bot_total") is None:
+            print("[roll] clearing stale bot-wait flags")
+            _clear_bot_roll_wait(state)
+        else:
             return
-        if state.get("pending_bot_roll_cmd_id"):
-            return
-        print("[roll] clearing stale bot-wait flags")
-        _clear_bot_roll_wait(state)
-
     if not is_bot_turn(state):
         return
     await trigger_bot_roll(roll_channel, form, bot_user)
@@ -349,78 +343,6 @@ async def _find_nearest_roll_cmd(channel, embed_message):
     return None
 
 
-async def _find_roll_cmd_for_embed(channel, embed_message, form, bot_user):
-    """Prefer the pending self -roll so player rolls don't steal bot embeds."""
-    state = form["game_state"]
-    pending_bot_id = state.get("pending_bot_roll_cmd_id")
-    if pending_bot_id:
-        try:
-            msg = await channel.fetch_message(pending_bot_id)
-            if is_roll_command(msg.content) and msg.author.id == bot_user.id:
-                return msg
-        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-            pass
-    return await _find_nearest_roll_cmd(channel, embed_message)
-
-
-async def _try_recover_pending_bot_embed(channel, form, bot_user, bot):
-    """If Da Hood replied but we missed it, scan history after our -roll."""
-    state = form["game_state"]
-    pending_id = state.get("pending_bot_roll_cmd_id")
-    if not pending_id:
-        return False
-
-    try:
-        roll_msg = await channel.fetch_message(pending_id)
-    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-        print("[roll] pending -roll missing — clearing wait")
-        _clear_bot_roll_wait(state)
-        return True
-
-    async for msg in channel.history(limit=25, after=roll_msg):
-        if msg.id in state.get("consumed_embed_ids", set()):
-            continue
-        if not msg.embeds:
-            continue
-        if not (msg.author.bot or msg.author.id == DA_HOOD_BOT_ID):
-            continue
-        await handle_roll_embed(msg, form, bot_user, bot)
-        return True
-
-    return False
-
-
-async def maybe_unstick_game(channel, form, bot_user, bot):
-    """Recover when waiting on a bot embed that already landed or flags went stale."""
-    state = form.get("game_state")
-    if not state or state.get("game_type") != "dice":
-        return
-    if state.get("scoring") or state.get("bot_roll_in_flight"):
-        return
-
-    waiting_on_bot = bool(
-        state.get("pending_bot_roll_cmd_id")
-        or (
-            state.get("waiting_for_embed")
-            and state.get("roll_initiator_id") == bot_user.id
-        )
-    )
-    if not waiting_on_bot:
-        return
-
-    if await _try_recover_pending_bot_embed(channel, form, bot_user, bot):
-        return
-
-    if (
-        is_bot_turn(state)
-        and not state.get("user_totals_queue")
-        and state.get("pending_bot_total") is None
-    ):
-        print("[roll] unstick — clearing stale bot-wait and retrying roll")
-        _clear_bot_roll_wait(state)
-        await do_next_roll(channel, form, bot_user, bot)
-
-
 async def handle_roll_embed(message, form, bot_user, bot):
     state = form["game_state"]
     state.setdefault("consumed_embed_ids", set())
@@ -445,7 +367,7 @@ async def handle_roll_embed(message, form, bot_user, bot):
     state.setdefault("prefetched_user_totals", [])
     state.setdefault("queued_user_roll_ids", [])
 
-    nearest = await _find_roll_cmd_for_embed(message.channel, message, form, bot_user)
+    nearest = await _find_nearest_roll_cmd(message.channel, message)
     if not nearest:
         state["consumed_embed_ids"].discard(message.id)
         return
@@ -552,12 +474,15 @@ async def _handle_bot_roll_embed(message, form, bot_user, bot, cmd, total):
         return
 
     if pending_cmd_id is not None and cmd.id != pending_cmd_id:
-        print(
-            f"[roll] bot embed for stale -roll {cmd.id} "
-            f"(expected {pending_cmd_id}) — ignored"
-        )
-        state["consumed_embed_ids"].discard(message.id)
-        return
+        # Nearest -roll is an older self -roll; accept only if nothing else is pending
+        if state.get("last_bot_roll_msg_id") == cmd.id:
+            pass
+        else:
+            print(
+                f"[roll] bot embed for stale -roll {cmd.id} "
+                f"(expected {pending_cmd_id}) — ignored"
+            )
+            return
 
     state["pending_bot_roll_cmd_id"] = None
     state.setdefault("consumed_roll_cmd_ids", set()).add(cmd.id)

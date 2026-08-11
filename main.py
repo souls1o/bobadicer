@@ -14,7 +14,7 @@ from forms import (
     start_ticket_form,
     was_bot_added_to_channel,
 )
-from games import DA_HOOD_BOT_ID, handle_da_hood_message, handle_user_roll, maybe_unstick_game, start_game
+from games import DA_HOOD_BOT_ID, handle_da_hood_message, handle_user_roll, start_game
 from cooldowns import acquire_command_cooldown
 from send_queue import ensure_worker, queued_reply, queued_send
 from services import get_house_balance_text
@@ -218,8 +218,6 @@ async def on_message_edit(before, after):
     try:
         form = get_form(after.channel.id)
         await _try_handle_dice_embed(after, form)
-        if form:
-            await maybe_unstick_game(after.channel, form, bot.user, bot)
     except Exception as exc:
         print(f"[on_message_edit] error in #{getattr(after.channel, 'name', '?')}: {exc}")
 
@@ -324,13 +322,10 @@ async def _handle_message(message: discord.Message):
 
     if form and "game_state" in form:
         if await _try_handle_dice_embed(message, form):
-            await maybe_unstick_game(message.channel, form, bot.user, bot)
             return
         if message.author.id == DA_HOOD_BOT_ID and message.embeds:
             await handle_da_hood_message(message, form, bot.user, bot)
-            await maybe_unstick_game(message.channel, form, bot.user, bot)
             return
-        await maybe_unstick_game(message.channel, form, bot.user, bot)
 
     form = get_form(channel_id)
     if form and not form.get("game_state") and not form.get("waiting_for_confirm") and not form.get("waiting_for_rerun") and not form.get("waiting_for_rerun_amount"):
