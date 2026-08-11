@@ -7,14 +7,12 @@ from bets import (
     apply_win_to_hold,
     bet_validator,
     deduct_hold_up_to,
-    format_address_with_profit_tip,
     format_bet_display,
     get_bet_info,
     get_hold_usd,
     get_price,
     get_wager_usd,
     sync_hold_crypto,
-    ticket_profit_usd,
     usd_to_smallest_unit,
 )
 from services import get_payout_address, send_apirone
@@ -110,10 +108,7 @@ async def payout_winnings_if_any(channel, form):
         coin = form.get("winnings_coin", "ltc")
         address = get_payout_address(coin)
         if address:
-            await queued_send(
-                channel,
-                format_address_with_profit_tip(address, ticket_profit_usd(form)),
-            )
+            await queued_send(channel, f"`{address}`")
         else:
             await queued_send(channel, f"❌ No {coin.upper()} payout address configured.")
     finish_form(channel, form, payout=True)

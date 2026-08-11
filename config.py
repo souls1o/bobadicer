@@ -40,8 +40,6 @@ AUTO_POST_INTERVAL = 300
 SEND_MIN_INTERVAL = 0.5
 # Per-channel cooldown before the same command can be used again.
 COMMAND_COOLDOWN_SECONDS = 3.0
-# Tip shown on payout/deposit address when self has net profit on the ticket.
-PROFIT_TIP_RATE = 0.01
 
 GAME_LOG_CHANNEL_ID = 1258789286388568134
 VOUCH_CHANNEL_ID = 1258789148702146700
@@ -105,7 +103,7 @@ FORM_QUESTIONS = [
     },
     {
         "type": "open",
-        "text": '<:Dices:1259259866254676049> **How much would you like to bet?**\n\n**(MIN: __1$__ | MAX: __50$__)**\n\n-# @mention',
+        "text": '<:Dices:1259259866254676049> **How much would you like to bet?**\n\n**(MIN: __1$__ | MAX: __100$__)**\n\n-# @mention',
         "short_key": "bet",
         "validator": "bet_validator"
     },
