@@ -25,24 +25,17 @@ def is_bot_turn(state):
     return state["current_player"] in ("me", "@eggdicer")
 
 
-def _clear_bot_roll_wait(state):
-    state["waiting_for_embed"] = False
-    state["roll_initiator_id"] = None
-    state["pending_bot_roll_cmd_id"] = None
-    state["last_bot_roll_msg_id"] = None
-    state["bot_roll_in_flight"] = False
-
-
 async def trigger_bot_roll(roll_channel, form, bot_user):
     state = form["game_state"]
     if state.get("bot_roll_in_flight"):
         return
-    if state.get("pending_bot_roll_cmd_id"):
-        return
 
     state["bot_roll_in_flight"] = True
+    state["waiting_for_embed"] = True
+    state["roll_initiator_id"] = bot_user.id
+    state["pending_bot_roll_cmd_id"] = None
     try:
-        await asyncio.sleep(0.35)
+        await asyncio.sleep(1)
         if "game_state" not in form or form["game_state"] is not state:
             return
         if state.get("scoring"):
@@ -50,17 +43,10 @@ async def trigger_bot_roll(roll_channel, form, bot_user):
 
         hype = random.choice(config.ROLL_HYPE_MESSAGES)
         sent = await queued_send(roll_channel, f"-roll {hype}")
+        state["waiting_for_embed"] = True
+        state["roll_initiator_id"] = bot_user.id
         if sent is not None:
             state["pending_bot_roll_cmd_id"] = sent.id
-            state["last_bot_roll_msg_id"] = sent.id
-            state["waiting_for_embed"] = True
-            state["roll_initiator_id"] = bot_user.id
-        else:
-            print("[roll] -roll send returned None — clearing wait flags")
-            _clear_bot_roll_wait(state)
-    except Exception as exc:
-        print(f"[roll] bot -roll send failed: {exc}")
-        _clear_bot_roll_wait(state)
     finally:
         state["bot_roll_in_flight"] = False
 
@@ -195,7 +181,6 @@ def _reset_round_state(state):
     state["waiting_for_embed"] = False
     state["roll_initiator_id"] = None
     state["bot_roll_in_flight"] = False
-    state["last_bot_roll_msg_id"] = None
     state["current_player"] = state["first_player"]
 
 
@@ -283,16 +268,16 @@ async def _score_pair(roll_channel, form, bot_user, bot, me_total, you_total, *,
 
         first_to = state["first_to"]
         if state["self_score"] >= first_to or state["adder_score"] >= first_to:
-            await queued_send(ticket_channel, f"{state['self_score']}-{state['adder_score']}")
+            await queued_send(ticket_channel, f"`{state['self_score']}-{state['adder_score']}`")
             self_won = state["self_score"] >= first_to
             await end_game(ticket_channel, form, self_won, bot_user, bot)
             return True
 
         if continue_batch:
-            await queued_send(ticket_channel, f"{state['self_score']}-{state['adder_score']}")
+            await queued_send(ticket_channel, f"`{state['self_score']}-{state['adder_score']}`")
             return False
 
-        await queued_send(ticket_channel, f"{state['self_score']}-{state['adder_score']}")
+        await queued_send(ticket_channel, f"`{state['self_score']}-{state['adder_score']}`")
         _reset_round_state(state)
         state["scoring"] = False
         await _start_next_round(roll_channel, form, bot_user, bot)
@@ -305,20 +290,10 @@ async def do_next_roll(roll_channel, form, bot_user, bot):
     state = form["game_state"]
     if state.get("game_type") != "dice":
         return
-    if state.get("bot_roll_in_flight") or state.get("scoring"):
+    if state.get("waiting_for_embed") or state.get("bot_roll_in_flight") or state.get("scoring"):
         return
-    if state.get("pending_bot_roll_cmd_id"):
-        return
-    # Recover from stale wait flags (send failed or embed handler rejected)
-    if state.get("waiting_for_embed") and state.get("roll_initiator_id") == bot_user.id:
-        if not state.get("user_totals_queue") and state.get("pending_bot_total") is None:
-            print("[roll] clearing stale bot-wait flags")
-            _clear_bot_roll_wait(state)
-        else:
-            return
-    if not is_bot_turn(state):
-        return
-    await trigger_bot_roll(roll_channel, form, bot_user)
+    if is_bot_turn(state):
+        await trigger_bot_roll(roll_channel, form, bot_user)
 
 
 def parse_roll_from_embed(message):
@@ -337,10 +312,23 @@ def parse_roll_from_embed(message):
 
 
 async def _find_nearest_roll_cmd(channel, embed_message):
-    async for msg in channel.history(limit=20, before=embed_message):
+    async for msg in channel.history(limit=50, before=embed_message):
         if is_roll_command(msg.content):
             return msg
     return None
+
+
+def dice_embed_active(state):
+    return (
+        state.get("waiting_for_embed")
+        or state.get("bot_roll_in_flight")
+        or state.get("scoring")
+        or state.get("pending_bot_total") is not None
+        or state.get("awaiting_user_after_bot")
+        or state.get("user_totals_queue")
+        or state.get("prefetched_user_totals")
+        or state.get("queued_user_roll_ids")
+    )
 
 
 async def handle_roll_embed(message, form, bot_user, bot):
@@ -410,7 +398,8 @@ async def _handle_user_roll_embed(message, form, bot_user, bot, cmd, total):
     queued_ids = state.get("queued_user_roll_ids", [])
 
     waiting_on_bot = (
-        state.get("waiting_for_embed") and state.get("roll_initiator_id") == bot_user.id
+        state.get("waiting_for_embed")
+        and state.get("roll_initiator_id") == bot_user.id
     ) or state.get("bot_roll_in_flight") or bool(state.get("pending_bot_roll_cmd_id"))
 
     out_of_turn = (
@@ -422,15 +411,6 @@ async def _handle_user_roll_embed(message, form, bot_user, bot, cmd, total):
 
     if waiting_on_bot or out_of_turn or (cmd.id in queued_ids and cmd.id not in pending_ids):
         _stash_prefetched_user_total(state, cmd.id, total)
-        stuck_bot_wait = (
-            state.get("waiting_for_embed")
-            and state.get("roll_initiator_id") == bot_user.id
-            and not state.get("pending_bot_roll_cmd_id")
-            and not state.get("bot_roll_in_flight")
-        )
-        if stuck_bot_wait:
-            print("[roll] clearing stuck bot-wait after early player embed")
-            _clear_bot_roll_wait(state)
         idle = (
             not state.get("bot_roll_in_flight")
             and not state.get("waiting_for_embed")
@@ -440,8 +420,6 @@ async def _handle_user_roll_embed(message, form, bot_user, bot, cmd, total):
         )
         if idle:
             await _start_next_round(message.channel, form, bot_user, bot)
-        elif stuck_bot_wait and is_bot_turn(state):
-            await do_next_roll(message.channel, form, bot_user, bot)
         return
 
     _consume_user_roll_cmd(state, cmd.id)
@@ -462,30 +440,15 @@ async def _handle_bot_roll_embed(message, form, bot_user, bot, cmd, total):
     ticket_user_id = form["ticket_user_id"]
 
     pending_cmd_id = state.get("pending_bot_roll_cmd_id")
-    expect_bot = bool(
-        pending_cmd_id
-        or state.get("user_totals_queue")
-        or (
-            state.get("waiting_for_embed")
-            and state.get("roll_initiator_id") == bot_user.id
-        )
-    )
-    if not expect_bot:
+    if pending_cmd_id is not None and cmd.id != pending_cmd_id:
+        return
+    if pending_cmd_id is None and not (
+        state.get("waiting_for_embed")
+        and state.get("roll_initiator_id") == bot_user.id
+    ) and not state.get("user_totals_queue"):
         return
 
-    if pending_cmd_id is not None and cmd.id != pending_cmd_id:
-        # Nearest -roll is an older self -roll; accept only if nothing else is pending
-        if state.get("last_bot_roll_msg_id") == cmd.id:
-            pass
-        else:
-            print(
-                f"[roll] bot embed for stale -roll {cmd.id} "
-                f"(expected {pending_cmd_id}) — ignored"
-            )
-            return
-
     state["pending_bot_roll_cmd_id"] = None
-    state.setdefault("consumed_roll_cmd_ids", set()).add(cmd.id)
 
     if state["user_totals_queue"]:
         you_total = state["user_totals_queue"].pop(0)
@@ -582,7 +545,6 @@ async def start_game(channel, form, bot_user, bot=None):
         "bot_rolls_remaining": 0,
         "bot_roll_in_flight": False,
         "pending_bot_roll_cmd_id": None,
-        "last_bot_roll_msg_id": None,
         "scoring": False,
     }
     roll_channel = await get_ticket_channel(bot, form) if bot else channel

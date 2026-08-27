@@ -14,7 +14,7 @@ from forms import (
     start_ticket_form,
     was_bot_added_to_channel,
 )
-from games import DA_HOOD_BOT_ID, handle_da_hood_message, handle_user_roll, start_game
+from games import DA_HOOD_BOT_ID, dice_embed_active, handle_da_hood_message, handle_user_roll, start_game
 from cooldowns import acquire_command_cooldown
 from send_queue import ensure_worker, queued_reply, queued_send
 from services import get_house_balance_text
@@ -30,10 +30,13 @@ async def _try_handle_dice_embed(message, form):
     state = form["game_state"]
     if state.get("game_type") != "dice" or not message.embeds:
         return False
-    if not (message.author.bot or message.author.id == DA_HOOD_BOT_ID):
-        return False
-    await handle_da_hood_message(message, form, bot.user, bot)
-    return True
+    if message.author.bot and dice_embed_active(state):
+        await handle_da_hood_message(message, form, bot.user, bot)
+        return True
+    if message.author.id == DA_HOOD_BOT_ID:
+        await handle_da_hood_message(message, form, bot.user, bot)
+        return True
+    return False
 
 
 def set_auto_post_channel_id(channel_id):
@@ -321,9 +324,11 @@ async def _handle_message(message: discord.Message):
         return
 
     if form and "game_state" in form:
-        if await _try_handle_dice_embed(message, form):
+        state = form["game_state"]
+        if state.get("game_type") == "dice" and message.author.bot and dice_embed_active(state):
+            await handle_da_hood_message(message, form, bot.user, bot)
             return
-        if message.author.id == DA_HOOD_BOT_ID and message.embeds:
+        if state.get("game_type") == "dice" and message.author.id == DA_HOOD_BOT_ID:
             await handle_da_hood_message(message, form, bot.user, bot)
             return
 
