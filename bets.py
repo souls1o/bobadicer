@@ -51,11 +51,11 @@ def calculate_my_bet(form):
     gamemode = responses.get("gamemode")
     first_to = responses.get("first_to")
     if gamemode == "ties" and first_to == "ft3":
-        return round(his_bet * 1.2, 2)
+        return round(his_bet * 1.25, 2)
     if gamemode == "ties" and first_to == "ft5":
-        return round(his_bet * 1.3, 2)
+        return round(his_bet * 1.35, 2)
     if gamemode == "fair":
-        return round(his_bet * 0.9, 2)
+        return round(his_bet * 0.94, 2)
     return None
 
 

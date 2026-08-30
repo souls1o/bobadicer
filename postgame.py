@@ -94,6 +94,11 @@ async def record_winnings(channel, form, self_won):
 
 async def _post_game_background(channel, form, self_won, bot_user, bot):
     try:
+        from stats import track_stats
+        await track_stats(form, self_won)
+    except Exception as exc:
+        print(f"[end_game] track_stats failed: {exc}")
+    try:
         await post_victory_message(channel.guild, form, bot)
     except Exception as exc:
         print(f"[end_game] post_victory_message failed: {exc}")
@@ -256,6 +261,9 @@ async def process_rerun(channel, form, bot_user, bot=None):
 
     form["waiting_for_confirm"] = True
     form["waiting_for_adder_confirm"] = False
+    form["mm_confirm_sent"] = False
+    form.pop("player_conf_pending", None)
+    form.pop("player_confirmed", None)
     form["confirm_text"] = build_confirm_text(channel, form, bot_user)
     await queued_send(channel, form["confirm_text"])
     save_session_from_form(channel.id, form)

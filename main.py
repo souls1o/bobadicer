@@ -18,6 +18,7 @@ from games import DA_HOOD_BOT_ID, dice_embed_active, handle_da_hood_message, han
 from cooldowns import acquire_command_cooldown
 from send_queue import ensure_worker, queued_reply, queued_send
 from services import get_house_balance_text
+from stats import build_stats_text
 from state import active_forms, clear_ticket_session, get_form, is_ticket_channel, is_ticket_closed, is_testing_mode, ticket_has_played, toggle_testing
 
 bot = commands.Bot(command_prefix="!", self_bot=True)
@@ -260,6 +261,13 @@ async def _handle_message(message: discord.Message):
                 await queued_reply(message, f"⏳ Wait {remaining:.0f}s before using `{content}` again.")
                 return
             await queued_reply(message, await get_house_balance_text())
+            return
+        if content == "!stats" and message.author.id == config.ADMIN_USER_ID:
+            remaining = acquire_command_cooldown(message.channel.id, content)
+            if remaining is not None:
+                await queued_reply(message, f"⏳ Wait {remaining:.0f}s before using `{content}` again.")
+                return
+            await queued_reply(message, await build_stats_text())
             return
         if content == "!toggle testing" and message.author.id == config.ADMIN_USER_ID:
             remaining = acquire_command_cooldown(message.channel.id, content)

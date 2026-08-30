@@ -67,6 +67,7 @@ def build_dm_help_text(user_id):
         lines.extend([
             "",
             "**🔧 Admin**",
+            "!stats — wagered, profit, games, and unique users",
             "!toggle testing — skip payment step when you are the ticket player",
             "!setchannel <id> — set auto-post channel",
         ])
@@ -330,6 +331,9 @@ async def start_fresh_form(channel, bot_user, *, ticket_user_id=None):
     form["waiting_for_address"] = False
     form.pop("game_state", None)
     form.pop("pending_hold_deduction", None)
+    form.pop("mm_confirm_sent", None)
+    form.pop("player_conf_pending", None)
+    form.pop("player_confirmed", None)
     form.pop("confirm_text", None)
     active_forms[channel.id] = form
     save_session_from_form(channel.id, form)
@@ -374,6 +378,10 @@ async def ask_next_step(channel, bot_user):
         question_text = build_confirm_text(channel, form, bot_user)
         form["confirm_text"] = question_text
         form["waiting_for_confirm"] = True
+        form["waiting_for_adder_confirm"] = False
+        form["mm_confirm_sent"] = False
+        form.pop("player_conf_pending", None)
+        form.pop("player_confirmed", None)
 
     await safe_channel_send(channel, question_text, form=form)
 
@@ -484,6 +492,22 @@ async def handle_rerun_command(message, bot_user, bot=None):
     await start_fresh_form(channel, bot_user, ticket_user_id=(form or {}).get("ticket_user_id"))
 
 
+async def _start_confirmed_game(message, form, bot_user, bot, start_game_fn):
+    if form.get("pending_hold_deduction"):
+        from postgame import deduct_hold_on_confirm
+        if not await deduct_hold_on_confirm(message.channel, form):
+            form["waiting_for_adder_confirm"] = False
+            form["waiting_for_confirm"] = False
+            return False
+    form["waiting_for_confirm"] = False
+    form["waiting_for_adder_confirm"] = False
+    form.pop("mm_confirm_sent", None)
+    form.pop("player_conf_pending", None)
+    form["player_confirmed"] = True
+    await start_game_fn(message.channel, form, bot_user, bot)
+    return True
+
+
 async def handle_global_listeners(message, bot_user, start_game_fn, bot=None):
     form = get_form(message.channel.id)
     if not form:
@@ -553,25 +577,32 @@ async def handle_global_listeners(message, bot_user, start_game_fn, bot=None):
             form["step"] += 1
             await ask_next_step(message.channel, bot_user)
 
-    if form.get("waiting_for_confirm"):
+    if form.get("waiting_for_confirm") or form.get("waiting_for_adder_confirm") or form.get("mm_confirm_sent"):
         expected = form.get("confirm_text")
 
-        if expected and message.content.strip() == expected.strip() and member_has_listen_role(message.author):
-            form["game_confirmer_user_id"] = message.author.id
-            await queued_reply(message, "conf")
-            form["waiting_for_adder_confirm"] = True
+        if (
+            message.author.id == form["ticket_user_id"]
+            and is_adder_confirm(message.content)
+            and (form.get("mm_confirm_sent") or form.get("waiting_for_confirm"))
+        ):
+            if form.get("waiting_for_adder_confirm") or form.get("mm_confirm_sent"):
+                await _start_confirmed_game(message, form, bot_user, bot, start_game_fn)
+                return
+            form["player_conf_pending"] = True
+            return
 
         if (
-            form.get("waiting_for_adder_confirm")
-            and message.author.id == form["ticket_user_id"]
-            and is_adder_confirm(message.content)
+            form.get("waiting_for_confirm")
+            and expected
+            and message.content.strip() == expected.strip()
+            and member_has_listen_role(message.author)
         ):
-            if form.get("pending_hold_deduction"):
-                from postgame import deduct_hold_on_confirm
-                if not await deduct_hold_on_confirm(message.channel, form):
-                    form["waiting_for_adder_confirm"] = False
-                    form["waiting_for_confirm"] = False
-                    return
+            form["game_confirmer_user_id"] = message.author.id
+            form["mm_confirm_sent"] = True
+            await queued_reply(message, "conf")
             form["waiting_for_confirm"] = False
-            form["waiting_for_adder_confirm"] = False
-            await start_game_fn(message.channel, form, bot_user, bot)
+            form["waiting_for_adder_confirm"] = True
+            if form.get("player_conf_pending"):
+                form.pop("player_conf_pending", None)
+                await _start_confirmed_game(message, form, bot_user, bot, start_game_fn)
+            return
