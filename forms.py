@@ -114,6 +114,12 @@ def is_adder_confirm(content):
     return text.startswith("conf")
 
 
+def confirm_messages_match(message_text, expected):
+    if not expected:
+        return False
+    return " ".join((message_text or "").split()) == " ".join(expected.split())
+
+
 def message_references_bot(message, bot_user):
     content = message.content or ""
     if "eggdicer" in content.lower():
@@ -583,28 +589,30 @@ async def handle_global_listeners(message, bot_user, start_game_fn, bot=None):
     if form.get("waiting_for_confirm") or form.get("waiting_for_adder_confirm") or form.get("mm_confirm_sent"):
         expected = form.get("confirm_text")
 
-        if (
-            message.author.id == form["ticket_user_id"]
-            and is_adder_confirm(message.content)
-            and (form.get("mm_confirm_sent") or form.get("waiting_for_confirm"))
-        ):
-            if form.get("waiting_for_adder_confirm") or form.get("mm_confirm_sent"):
+        if message.author.id == form["ticket_user_id"] and is_adder_confirm(message.content):
+            if form.get("waiting_for_adder_confirm"):
+                form.pop("player_conf_pending", None)
                 await _start_confirmed_game(message, form, bot_user, bot, start_game_fn)
                 return
-            form["player_conf_pending"] = True
-            return
+            if form.get("waiting_for_confirm") and not form.get("mm_confirm_sent"):
+                form["player_conf_pending"] = True
+                return
 
         if (
             form.get("waiting_for_confirm")
             and expected
-            and message.content.strip() == expected.strip()
+            and confirm_messages_match(message.content, expected)
             and member_has_listen_role(message.author)
         ):
             form["game_confirmer_user_id"] = message.author.id
             form["mm_confirm_sent"] = True
-            await queued_reply(message, "conf")
             form["waiting_for_confirm"] = False
             form["waiting_for_adder_confirm"] = True
+            if form.get("player_conf_pending"):
+                form.pop("player_conf_pending", None)
+                await _start_confirmed_game(message, form, bot_user, bot, start_game_fn)
+                return
+            await queued_reply(message, "conf")
             if form.get("player_conf_pending"):
                 form.pop("player_conf_pending", None)
                 await _start_confirmed_game(message, form, bot_user, bot, start_game_fn)

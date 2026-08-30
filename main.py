@@ -341,7 +341,15 @@ async def _handle_message(message: discord.Message):
             return
 
     form = get_form(channel_id)
-    if form and not form.get("game_state") and not form.get("waiting_for_confirm") and not form.get("waiting_for_rerun") and not form.get("waiting_for_rerun_amount"):
+    if (
+        form
+        and not form.get("game_state")
+        and not form.get("waiting_for_confirm")
+        and not form.get("waiting_for_adder_confirm")
+        and not form.get("waiting_for_address")
+        and not form.get("waiting_for_rerun")
+        and not form.get("waiting_for_rerun_amount")
+    ):
         await handle_form_step(message, form, bot.user)
 
     # Handle rerun/confirm/payment listeners before considering a form restart
