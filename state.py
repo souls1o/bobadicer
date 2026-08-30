@@ -89,8 +89,9 @@ def save_session_from_form(channel_id, form):
     session["winnings_crypto"] = form.get("winnings_crypto", 0.0)
     session["winnings_coin"] = form.get("winnings_coin", "ltc")
     session["total_wagered_usd"] = form.get("total_wagered_usd", 0.0)
-    if form.get("payout_address"):
-        session["payout_address"] = form["payout_address"]
+    addr = form.get("payout_address")
+    if addr and addr != "testing":
+        session["payout_address"] = addr
     if form.get("game_confirmer_user_id"):
         session["game_confirmer_user_id"] = form["game_confirmer_user_id"]
     if form.get("game_started"):
@@ -112,6 +113,27 @@ def get_hold_data(channel_id):
     usd = get_hold_usd(source)
     crypto = round(usd_to_crypto_amount(usd, coin), 8) if usd > 0 else 0.0
     return usd, crypto, coin
+
+
+def set_ticket_payout_address(channel_id, form, address):
+    """Remember the MM payout address for this ticket until the channel is cleared."""
+    if not address or address == "testing":
+        return
+    session = get_ticket_session(channel_id)
+    session["payout_address"] = address
+    if form is not None:
+        form["payout_address"] = address
+
+
+def get_ticket_payout_address(channel_id, form=None):
+    if form:
+        addr = form.get("payout_address")
+        if addr and addr != "testing":
+            return addr
+    addr = get_ticket_session(channel_id).get("payout_address")
+    if addr and addr != "testing":
+        return addr
+    return None
 
 
 def new_form_dict(channel_id, ticket_user_id):

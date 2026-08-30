@@ -17,7 +17,7 @@ from bets import (
 )
 from services import get_payout_address, send_apirone
 from send_queue import queued_send
-from state import cancel_rerun_timeout, finish_form, get_form, save_session_from_form, should_skip_payment
+from state import cancel_rerun_timeout, finish_form, get_form, get_ticket_payout_address, save_session_from_form, should_skip_payment
 from forms import build_confirm_text, ticket_mention
 
 RERUN_TIMEOUT_SECONDS = 180
@@ -165,8 +165,8 @@ async def prompt_rerun_amount(channel, form, bot_user):
 
 
 async def _send_rerun_shortfall(channel, form, shortfall, coin):
-    address = form.get("payout_address")
-    if not address or address == "testing":
+    address = get_ticket_payout_address(channel.id, form)
+    if not address:
         await queued_send(channel, "❌ No payout address on file for rerun.")
         return False
 

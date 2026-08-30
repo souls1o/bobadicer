@@ -28,6 +28,7 @@ from state import (
     finish_form,
     get_form,
     get_hold_data,
+    get_ticket_payout_address,
     get_ticket_session,
     is_ticket_channel,
     is_ticket_closed,
@@ -35,6 +36,7 @@ from state import (
     register_ticket_channel,
     reopen_ticket_for_new_form,
     save_session_from_form,
+    set_ticket_payout_address,
     should_skip_payment,
     ticket_channels,
     ticket_has_played,
@@ -269,7 +271,8 @@ def build_mm_holdings_message(form):
 async def _skip_payment_step(channel, form, bot_user):
     wager_usd = get_wager_usd(form)
     add_wagered_usd(form, wager_usd)
-    form["payout_address"] = "testing"
+    if not get_ticket_payout_address(channel.id, form):
+        form["payout_address"] = "testing"
     form["waiting_for_address"] = False
     save_session_from_form(channel.id, form)
     form["step"] += 1
@@ -528,9 +531,9 @@ async def handle_global_listeners(message, bot_user, start_game_fn, bot=None):
         _, _, coin = get_bet_info(form)
         address = extract_crypto_address(message.content, coin)
         if address:
+            set_ticket_payout_address(message.channel.id, form, address)
             wager_usd = get_wager_usd(form)
             hold = get_hold_usd(form)
-            form["payout_address"] = address
 
             if hold >= wager_usd:
                 # Sufficient hold — deduct only after confirm
