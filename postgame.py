@@ -262,7 +262,7 @@ async def process_rerun(channel, form, bot_user, bot=None):
     form["waiting_for_confirm"] = True
     form["waiting_for_adder_confirm"] = False
     form["mm_confirm_sent"] = False
-    form.pop("player_conf_pending", None)
+    form.pop("self_confirmed", None)
     form.pop("player_confirmed", None)
     form["confirm_text"] = build_confirm_text(channel, form, bot_user)
     await queued_send(channel, form["confirm_text"])

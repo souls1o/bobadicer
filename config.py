@@ -66,16 +66,16 @@ CHANNEL_BLACKLIST = [
 
 AUTO_POST_MESSAGE = """<:Dices:1259259866254676049> **Dicing from $1 to $100 — open a ticket, I’m fully automated 🤖
 
-<:Dices:1259259866254676049> I Win Ties: FT3 → I offer 20% HIGHER bet / FT5 → I offer 30% HIGHER bet
-<:Dices:1259259866254676049> Standard: FT3/FT5 → I offer 10% LOWER bet**
+<:Dices:1259259866254676049> I Win Ties: FT3 → I offer 25% HIGHER bet / FT5 → I offer 35% HIGHER bet
+<:Dices:1259259866254676049> Standard: FT3/FT5 → I offer 6% LOWER bet**
 """
 
 FORM_QUESTIONS = [
     {
         "type": "choice",
         "text": """<:Dices:1259259866254676049> Which gamemode would you like to play?
-1. I Win Ties — FT3 → 20% HIGHER Bet | FT5 → 30% HIGHER Bet
-2. Fair — 10% LOWER Bet
+1. I Win Ties — FT3 → 25% HIGHER Bet | FT5 → 35% HIGHER Bet
+2. Fair — 6% LOWER Bet
 
 -# @mention
 """,

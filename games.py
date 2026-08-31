@@ -505,6 +505,17 @@ async def handle_da_hood_message(message, form, bot_user, bot):
 
 
 async def start_game(channel, form, bot_user, bot=None):
+    if not form.get("player_confirmed"):
+        print(
+            f"[start_game] blocked — player has not confirmed in "
+            f"#{getattr(channel, 'name', channel.id)}"
+        )
+        form["waiting_for_adder_confirm"] = True
+        form["waiting_for_confirm"] = False
+        return
+    form.pop("player_confirmed", None)
+    form.pop("self_confirmed", None)
+
     form["game_started"] = True
     form["ticket_channel_id"] = channel.id
     save_session_from_form(channel.id, form)

@@ -262,7 +262,7 @@ async def _handle_message(message: discord.Message):
                 return
             await queued_reply(message, await get_house_balance_text())
             return
-        if content == "!stats" and message.author.id == config.ADMIN_USER_ID:
+        if content == "!stats":
             remaining = acquire_command_cooldown(message.channel.id, content)
             if remaining is not None:
                 await queued_reply(message, f"⏳ Wait {remaining:.0f}s before using `{content}` again.")
