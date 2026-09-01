@@ -226,8 +226,25 @@ async def on_message_edit(before, after):
         print(f"[on_message_edit] error in #{getattr(after.channel, 'name', '?')}: {exc}")
 
 
+async def _handle_stats_command(message):
+    remaining = acquire_command_cooldown(message.channel.id, "!stats")
+    if remaining is not None:
+        await queued_reply(message, f"⏳ Wait {remaining:.0f}s before using `!stats` again.")
+        return
+    await queued_reply(message, await build_stats_text())
+
+
 @bot.event
 async def on_message(message: discord.Message):
+    content = (message.content or "").strip().lower()
+    if content == "!stats":
+        if message.author.id == bot.user.id:
+            try:
+                await _handle_stats_command(message)
+            except Exception as exc:
+                print(f"[on_message] error handling !stats in #{getattr(message.channel, 'name', '?')}: {exc}")
+        return
+
     if message.author == bot.user:
         return
 
@@ -261,13 +278,6 @@ async def _handle_message(message: discord.Message):
                 await queued_reply(message, f"⏳ Wait {remaining:.0f}s before using `{content}` again.")
                 return
             await queued_reply(message, await get_house_balance_text())
-            return
-        if content == "!stats":
-            remaining = acquire_command_cooldown(message.channel.id, content)
-            if remaining is not None:
-                await queued_reply(message, f"⏳ Wait {remaining:.0f}s before using `{content}` again.")
-                return
-            await queued_reply(message, await build_stats_text())
             return
         if content == "!toggle testing" and message.author.id == config.ADMIN_USER_ID:
             remaining = acquire_command_cooldown(message.channel.id, content)

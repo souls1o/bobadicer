@@ -60,7 +60,6 @@ def build_dm_help_text(user_id):
         "!help — show this list",
         "!gamemodes — dice gamemode info",
         "!housebal — house LTC balance in USD",
-        "!stats — wagered, profit, games, and unique users",
         "",
         "**🎟️ Ticket-Only Commands**",
         "`!hold` — show current winnings for this ticket",
@@ -70,6 +69,7 @@ def build_dm_help_text(user_id):
         lines.extend([
             "",
             "**🔧 Admin**",
+            "!stats — wagered, profit, games, and unique users (self only, any channel)",
             "!toggle testing — skip payment step when you are the ticket player",
             "!setchannel <id> — set auto-post channel",
         ])
