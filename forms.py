@@ -102,7 +102,15 @@ async def safe_channel_send(channel, content, *, form=None):
 
 
 def is_roll_command(content):
-    return (content or "").strip().lower().startswith("-roll")
+    """Valid: `-roll` or `-roll <text>`. Case-sensitive; no `-roll-roll`, `-rolll`, or `-roll<emoji>`."""
+    if not content:
+        return False
+    text = content.strip()
+    if text == "-roll":
+        return True
+    if text.startswith("-roll") and len(text) > 5 and text[5].isspace():
+        return True
+    return False
 
 
 def member_has_listen_role(member):
