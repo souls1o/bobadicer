@@ -55,7 +55,7 @@ def calculate_my_bet(form):
     if gamemode == "ties" and first_to == "ft5":
         return round(his_bet * 1.35, 2)
     if gamemode == "fair":
-        return round(his_bet * 0.94, 2)
+        return round(his_bet * 0.93, 2)
     return None
 
 

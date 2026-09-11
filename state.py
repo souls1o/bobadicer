@@ -35,11 +35,6 @@ def is_ticket_closed(channel_id):
 
 
 def mark_ticket_closed(channel_id):
-    """End the form but keep hold + channel recognized for !hold / coin commands.
-
-    Hold is never zeroed while the ticket channel still exists — only reduced
-    when spent on a wager, or cleared when the channel is deleted.
-    """
     closed_ticket_channels.add(channel_id)
     form = active_forms.pop(channel_id, None)
     if form:
@@ -52,7 +47,6 @@ def mark_ticket_closed(channel_id):
 
 
 def ticket_has_played(channel_id):
-    """True after a game has started or the ticket was closed — blocks auto form start."""
     if channel_id in closed_ticket_channels:
         return True
     session = ticket_sessions.get(channel_id) or {}
@@ -60,7 +54,6 @@ def ticket_has_played(channel_id):
 
 
 def reopen_ticket_for_new_form(channel_id):
-    """Allow a fresh form after !rerun / yes while keeping hold + user."""
     closed_ticket_channels.discard(channel_id)
     session = get_ticket_session(channel_id)
     session.pop("closed", None)
@@ -90,7 +83,7 @@ def save_session_from_form(channel_id, form):
     session["winnings_coin"] = form.get("winnings_coin", "ltc")
     session["total_wagered_usd"] = form.get("total_wagered_usd", 0.0)
     addr = form.get("payout_address")
-    if addr and addr != "testing":
+    if addr and addr != "testing" and not session.get("payout_address"):
         session["payout_address"] = addr
     if form.get("game_confirmer_user_id"):
         session["game_confirmer_user_id"] = form["game_confirmer_user_id"]
@@ -116,10 +109,11 @@ def get_hold_data(channel_id):
 
 
 def set_ticket_payout_address(channel_id, form, address):
-    """Remember the MM payout address for this ticket until the channel is cleared."""
     if not address or address == "testing":
         return
     session = get_ticket_session(channel_id)
+    if session.get("payout_address"):
+        return
     session["payout_address"] = address
     if form is not None:
         form["payout_address"] = address
@@ -167,6 +161,10 @@ def get_form(channel_id):
     return active_forms.get(channel_id)
 
 
+def is_game_in_progress(form):
+    return bool(form and form.get("game_state"))
+
+
 def cancel_rerun_timeout(form):
     if not form:
         return
@@ -186,10 +184,8 @@ def clear_ticket_session(channel_id):
 def finish_form(channel, form, *, payout=False):
     cancel_rerun_timeout(form)
     channel_id = channel.id
-    # Always persist hold before dropping the active form
     save_session_from_form(channel_id, form)
     if payout:
-        # Form done — block auto-restart; hold stays until spent or channel deleted
         mark_ticket_closed(channel_id)
     else:
         active_forms.pop(channel_id, None)

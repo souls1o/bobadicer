@@ -30,6 +30,7 @@ from state import (
     get_hold_data,
     get_ticket_payout_address,
     get_ticket_session,
+    is_game_in_progress,
     is_ticket_channel,
     is_ticket_closed,
     new_form_dict,
@@ -47,7 +48,7 @@ VALIDATORS = {"bet_validator": bet_validator}
 
 DM_GAMEMODES_TEXT = """**🎲 Dice Gamemodes**
 1. **I Win Ties** — FT3 → 25% HIGHER BET | FT5 → 35% HIGHER BET
-2. **Fair** — 6% LOWER Bet"""
+2. **Fair** — 7% LOWER Bet"""
 
 
 def build_dm_gamemodes_text():
@@ -64,6 +65,7 @@ def build_dm_help_text(user_id):
         "**🎟️ Ticket-Only Commands**",
         "`!hold` — show current winnings for this ticket",
         "`!rerun` — start a new form in this ticket (keeps hold)",
+        "`!forceend <@user|id>` — force-finish stuck match; award that winner (MM/self)",
     ]
     if user_id == config.ADMIN_USER_ID:
         lines.extend([
@@ -102,7 +104,6 @@ async def safe_channel_send(channel, content, *, form=None):
 
 
 def is_roll_command(content):
-    """Valid: `-roll` or `-roll <text>`. Case-sensitive; no `-roll-roll`, `-rolll`, or `-roll<emoji>`."""
     if not content:
         return False
     text = content.strip()
@@ -115,6 +116,17 @@ def is_roll_command(content):
 
 def member_has_listen_role(member):
     return any(role.id in LISTEN_ROLES for role in member.roles)
+
+
+def parse_discord_user_id(raw, *, mentions=None):
+    text = (raw or "").strip()
+    if not text and mentions:
+        return int(mentions[0].id)
+    if text.startswith("<@") and text.endswith(">"):
+        text = text[2:-1]
+        if text.startswith("!"):
+            text = text[1:]
+    return int(text)
 
 
 def is_adder_confirm(content):
@@ -147,13 +159,11 @@ def _overwrite_target_ids(channel):
 
 
 def is_channel_blacklisted(channel):
-    """Accept a channel object, channel id, or channel name."""
     if channel is None:
         return False
     channel_id = getattr(channel, "id", None)
     channel_name = getattr(channel, "name", None)
     if isinstance(channel, (int, str)) and not hasattr(channel, "id"):
-        # raw id or name passed directly
         entry = channel
         for item in config.CHANNEL_BLACKLIST:
             if isinstance(item, int) and isinstance(entry, int) and item == entry:
@@ -294,7 +304,6 @@ async def _skip_payment_step(channel, form, bot_user):
 
 
 async def _use_hold_for_wager_step(channel, form, bot_user):
-    """Hold covers the bot wager — skip the address prompt and go to confirm."""
     form["pending_hold_deduction"] = True
     form["waiting_for_address"] = False
     save_session_from_form(channel.id, form)
@@ -303,11 +312,63 @@ async def _use_hold_for_wager_step(channel, form, bot_user):
     await ask_next_step(channel, bot_user)
 
 
+async def _apply_wager_funding(channel, form, bot_user, address, *, saved_address=False):
+    _, _, coin = get_bet_info(form)
+    wager_usd = get_wager_usd(form)
+    hold = get_hold_usd(form)
+
+    if hold >= wager_usd:
+        form["pending_hold_deduction"] = True
+        form["waiting_for_address"] = False
+        save_session_from_form(channel.id, form)
+        await queued_send(
+            channel,
+            f"✅ Using {format_bet_display(wager_usd)} from hold for this game (deducted after confirm).",
+        )
+        form["step"] += 1
+        await ask_next_step(channel, bot_user)
+        return True
+
+    covered = deduct_hold_up_to(form, hold, coin) if hold > 0 else 0.0
+    shortfall = round(wager_usd - covered, 2)
+    amount = usd_to_smallest_unit(shortfall, coin, get_price(coin))
+    result = await send_apirone(coin, address, amount)
+    if "error" in result:
+        err = result["error"]
+        if covered > 0:
+            form["winnings_usd"] = round(get_hold_usd(form) + covered, 8)
+            sync_hold_crypto(form, coin)
+        await queued_send(
+            channel,
+            f"❌ Transfer failed: {err if isinstance(err, str) else err}",
+        )
+        return False
+
+    form["pending_hold_deduction"] = False
+    form["waiting_for_address"] = False
+    add_wagered_usd(form, wager_usd)
+    save_session_from_form(channel.id, form)
+    saved_note = " (saved MM address)" if saved_address else ""
+    if covered > 0:
+        await queued_send(
+            channel,
+            f"📤 Used {format_bet_display(covered)} from hold and sent "
+            f"{format_bet_display(shortfall)} {coin.upper()} to {address}{saved_note}",
+        )
+    else:
+        await queued_send(
+            channel,
+            f"📤 Sent {format_bet_display(shortfall)} {coin.upper()} to {address}{saved_note}",
+        )
+    form["step"] += 1
+    await ask_next_step(channel, bot_user)
+    return True
+
+
 async def start_ticket_form(channel, bot_user, bot=None):
     if is_channel_blacklisted(channel):
         return
     if is_ticket_closed(channel.id) or ticket_has_played(channel.id):
-        # After a game, only !rerun / "yes" may start a new form — never mentions
         return
     if get_form(channel.id):
         return
@@ -327,7 +388,6 @@ async def start_ticket_form(channel, bot_user, bot=None):
 
 
 async def start_fresh_form(channel, bot_user, *, ticket_user_id=None):
-    """Start a brand-new form in this ticket (yes / !rerun). Keeps hold + payout address."""
     cancel_rerun_timeout(get_form(channel.id))
     session = reopen_ticket_for_new_form(channel.id)
     user_id = ticket_user_id or session.get("ticket_user_id")
@@ -338,7 +398,6 @@ async def start_fresh_form(channel, bot_user, *, ticket_user_id=None):
         return False
 
     form = new_form_dict(channel.id, user_id)
-    # Carry session money state; wipe game answers so the full form is asked again
     form["responses"] = {"game": "dice"}
     form["step"] = 0
     form["waiting_for_rerun"] = False
@@ -384,6 +443,12 @@ async def ask_next_step(channel, bot_user):
         if get_hold_usd(form) >= get_wager_usd(form):
             await _use_hold_for_wager_step(channel, form, bot_user)
             return
+        stored_address = get_ticket_payout_address(channel.id, form)
+        if stored_address:
+            if await _apply_wager_funding(
+                channel, form, bot_user, stored_address, saved_address=True
+            ):
+                return
         dynamic.update({
             "coin": normalize_coin(),
             "my_bet": format_bet_display(calculate_my_bet(form) or 0),
@@ -445,8 +510,71 @@ async def handle_form_step(message, form, bot_user):
         await ask_next_step(message.channel, bot_user)
 
 
+async def handle_forceend_command(message, bot_user, bot=None):
+    channel = message.channel
+    is_self = message.author.id == bot_user.id
+    is_mm = isinstance(message.author, discord.Member) and member_has_listen_role(message.author)
+    if not is_self and not is_mm:
+        await queued_send(channel, "❌ Self or MM only command.")
+        return
+
+    parts = message.content.strip().split(maxsplit=1)
+    if len(parts) < 2:
+        await queued_send(
+            channel,
+            f"Usage: `!forceend {bot_user.mention}` or `!forceend <@player|id>`\n"
+            "Awards hold as if that side won the in-progress match.",
+        )
+        return
+    try:
+        winner_id = parse_discord_user_id(parts[1], mentions=message.mentions)
+    except (TypeError, ValueError):
+        await queued_send(channel, "❌ Invalid user id / mention.")
+        return
+
+    form = get_form(channel.id)
+    if not is_game_in_progress(form):
+        await queued_send(channel, "❌ No game in progress to force-end.")
+        return
+
+    player_id = form.get("ticket_user_id")
+    if int(winner_id) == int(bot_user.id):
+        self_won = True
+        winner_label = bot_user.mention
+    elif player_id and int(winner_id) == int(player_id):
+        self_won = False
+        winner_label = f"<@{player_id}>"
+    else:
+        await queued_send(
+            channel,
+            f"❌ Winner must be {bot_user.mention} or the ticket player"
+            + (f" (<@{player_id}>)" if player_id else "")
+            + ".",
+        )
+        return
+
+    from postgame import end_game
+
+    state = form.get("game_state") or {}
+    score = f"{state.get('self_score', '?')}-{state.get('adder_score', '?')}"
+    await queued_send(
+        channel,
+        f"⚠️ Force-ending match at `{score}` — {winner_label} awarded.",
+    )
+    await end_game(channel, form, self_won, bot_user, bot)
+
+
 async def handle_ticket_command(message, bot_user, bot=None):
     content = message.content.strip().lower()
+    cmd = message.content.strip().split()[0].lower() if message.content.strip() else ""
+
+    if cmd == "!forceend":
+        remaining = acquire_command_cooldown(message.channel.id, "!forceend")
+        if remaining is not None:
+            await queued_reply(message, f"⏳ Wait {remaining:.0f}s before using `!forceend` again.")
+            return True
+        await handle_forceend_command(message, bot_user, bot)
+        return True
 
     if content in config.COIN_ADDRESS_COMMANDS:
         remaining = acquire_command_cooldown(message.channel.id, content)
@@ -499,7 +627,6 @@ async def handle_rerun_command(message, bot_user, bot=None):
         await queued_send(channel, "❌ Cannot rerun — a game is currently in progress.")
         return
 
-    # !rerun always starts a fresh form (new gamemode/bet/etc.), keeping hold
     if form:
         cancel_rerun_timeout(form)
         form["waiting_for_rerun"] = False
@@ -510,7 +637,6 @@ async def handle_rerun_command(message, bot_user, bot=None):
 
 
 async def _try_start_after_confirm(message, form, bot_user, bot, start_game_fn):
-    """Start only after MM posted confirm, player said conf, and self said conf."""
     if not form.get("mm_confirm_sent"):
         return False
     if not form.get("player_confirmed"):
@@ -556,58 +682,11 @@ async def handle_global_listeners(message, bot_user, start_game_fn, bot=None):
         address = extract_crypto_address(message.content, coin)
         if address:
             set_ticket_payout_address(message.channel.id, form, address)
-            wager_usd = get_wager_usd(form)
-            hold = get_hold_usd(form)
-
-            if hold >= wager_usd:
-                # Sufficient hold — deduct only after confirm
-                form["pending_hold_deduction"] = True
-                form["waiting_for_address"] = False
-                save_session_from_form(message.channel.id, form)
-                await queued_send(
-                    message.channel,
-                    f"✅ Using {format_bet_display(wager_usd)} from hold for this game (deducted after confirm).",
-                )
-                form["step"] += 1
-                await ask_next_step(message.channel, bot_user)
-                return
-
-            covered = deduct_hold_up_to(form, hold, coin) if hold > 0 else 0.0
-            shortfall = round(wager_usd - covered, 2)
-            amount = usd_to_smallest_unit(shortfall, coin, get_price(coin))
-            result = await send_apirone(coin, address, amount)
-            if "error" in result:
-                err = result["error"]
-                if covered > 0:
-                    form["winnings_usd"] = round(get_hold_usd(form) + covered, 8)
-                    sync_hold_crypto(form, coin)
-                await queued_send(
-                    message.channel,
-                    f"❌ Transfer failed: {err if isinstance(err, str) else err}",
-                )
-                return
-            form["pending_hold_deduction"] = False
-            form["waiting_for_address"] = False
-            add_wagered_usd(form, wager_usd)
-            save_session_from_form(message.channel.id, form)
-            if covered > 0:
-                await queued_send(
-                    message.channel,
-                    f"📤 Used {format_bet_display(covered)} from hold and sent "
-                    f"{format_bet_display(shortfall)} {coin.upper()} to {address}",
-                )
-            else:
-                await queued_send(
-                    message.channel,
-                    f"📤 Sent {format_bet_display(shortfall)} {coin.upper()} to {address}",
-                )
-            form["step"] += 1
-            await ask_next_step(message.channel, bot_user)
+            await _apply_wager_funding(message.channel, form, bot_user, address)
 
     if form.get("waiting_for_confirm") or form.get("waiting_for_adder_confirm") or form.get("mm_confirm_sent"):
         expected = form.get("confirm_text")
 
-        # Player conf — only after MM pasted the matching confirm message.
         if (
             message.author.id == form["ticket_user_id"]
             and message.author.id != bot_user.id
@@ -618,7 +697,6 @@ async def handle_global_listeners(message, bot_user, start_game_fn, bot=None):
             await _try_start_after_confirm(message, form, bot_user, bot, start_game_fn)
             return
 
-        # MM posts the exact confirm line (ignore the bot's own template message).
         if (
             form.get("waiting_for_confirm")
             and expected

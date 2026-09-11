@@ -10,7 +10,6 @@ APIRONE_ACCOUNT = os.getenv("APIRONE_ACCOUNT", "")
 APIRONE_TRANSFER_KEY = os.getenv("APIRONE_TRANSFER_KEY", "")
 COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 
-# Hardcoded deposit addresses (!ltc, !btc, etc.)
 COIN_ADDRESSES = {
     "ltc": "ltc1qy3kq9h0c0pmllm6yzrl7gc9gd9tyfevhvvkqcg",
     "btc": "bc1qds3y6eyjms05zyx8kq7yayw5plmnt2mdtz8yuu",
@@ -36,9 +35,7 @@ AUTO_POST_CHANNEL_ID = 1524789293607026879
 AUTO_POST_CHANNEL_NAME = "lf-players"
 AUTO_POST_INTERVAL = 300
 
-# Minimum gap between any two outbound self messages (global queue).
 SEND_MIN_INTERVAL = 0.5
-# Per-channel cooldown before the same command can be used again.
 COMMAND_COOLDOWN_SECONDS = 3.0
 
 GAME_LOG_CHANNEL_ID = 1258789286388568134
@@ -55,7 +52,6 @@ ROLL_HYPE_MESSAGES = [
     "it’s rigged"
 ]
 
-# Channels where ticket scanning / form start is ignored (IDs and/or names)
 CHANNEL_BLACKLIST = [
     AUTO_POST_CHANNEL_ID,
     AUTO_POST_CHANNEL_NAME,
@@ -67,7 +63,7 @@ CHANNEL_BLACKLIST = [
 AUTO_POST_MESSAGE = """<:Dices:1259259866254676049> **Dicing from $1 to $100 — open a ticket, I’m fully automated 🤖
 
 <:Dices:1259259866254676049> I Win Ties: FT3 → I offer 25% HIGHER bet / FT5 → I offer 35% HIGHER bet
-<:Dices:1259259866254676049> Standard: FT3/FT5 → I offer 6% LOWER bet**
+<:Dices:1259259866254676049> Standard: FT3/FT5 → I offer 7% LOWER bet**
 """
 
 FORM_QUESTIONS = [
@@ -75,7 +71,7 @@ FORM_QUESTIONS = [
         "type": "choice",
         "text": """<:Dices:1259259866254676049> Which gamemode would you like to play?
 1. I Win Ties — FT3 → 25% HIGHER Bet | FT5 → 35% HIGHER Bet
-2. Fair — 6% LOWER Bet
+2. Fair — 7% LOWER Bet
 
 -# @mention
 """,

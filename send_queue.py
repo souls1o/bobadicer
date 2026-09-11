@@ -25,7 +25,6 @@ async def _send_with_retry(send_coro_factory):
 
 
 async def _paced_send(send_coro_factory):
-    """Serialize all outbound sends globally with a minimum gap between them."""
     global _last_send_at
     async with _lock:
         loop = asyncio.get_running_loop()
@@ -39,7 +38,6 @@ async def _paced_send(send_coro_factory):
 
 
 async def ensure_worker():
-    """Kept for compatibility — pacing uses a lock, no background worker."""
     return
 
 

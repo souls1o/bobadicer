@@ -185,12 +185,6 @@ async def _send_rerun_shortfall(channel, form, shortfall, coin):
 
 
 async def fund_rerun_before_confirm(channel, form):
-    """
-    Before confirm:
-    - If hold covers the full bot wager → do nothing yet (deduct after confirm)
-    - If hold is short → deduct available hold now and send only the shortfall now
-    Never sends crypto after confirmation.
-    """
     wager_usd, coin = get_wager_usd(form), get_bet_info(form)[2]
     hold = get_hold_usd(form)
 
@@ -201,19 +195,16 @@ async def fund_rerun_before_confirm(channel, form):
         return True
 
     if hold >= wager_usd:
-        # Sufficient hold — wait until confirm to subtract
         form["pending_hold_deduction"] = True
         save_session_from_form(channel.id, form)
         return True
 
-    # Insufficient hold — fund shortfall now (before confirm)
     form["pending_hold_deduction"] = False
     covered = deduct_hold_up_to(form, hold, coin) if hold > 0 else 0.0
     shortfall = round(wager_usd - covered, 2)
 
     if shortfall > 0:
         if not await _send_rerun_shortfall(channel, form, shortfall, coin):
-            # Restore hold if transfer failed
             if covered > 0:
                 form["winnings_usd"] = round(get_hold_usd(form) + covered, 8)
                 sync_hold_crypto(form, coin)
@@ -226,7 +217,6 @@ async def fund_rerun_before_confirm(channel, form):
 
 
 async def deduct_hold_on_confirm(channel, form):
-    """After confirm: only subtract hold when it fully covered the rerun (no crypto)."""
     if not form.pop("pending_hold_deduction", False):
         return True
 
@@ -288,7 +278,6 @@ async def handle_rerun_response(message, form, bot_user, start_game_fn, bot=None
             finish_form(message.channel, form, payout=True)
         return True
 
-    # "yes" → brand-new form (do not reuse old gamemode/bet/settings)
     from forms import start_fresh_form
     save_session_from_form(message.channel.id, form)
     await start_fresh_form(
@@ -298,5 +287,4 @@ async def handle_rerun_response(message, form, bot_user, start_game_fn, bot=None
 
 
 async def handle_rerun_amount(message, form, bot_user, bot=None):
-    # Legacy path — reruns now use a fresh form instead of amount-only reuse
     return False

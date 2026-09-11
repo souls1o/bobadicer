@@ -25,7 +25,6 @@ bot = commands.Bot(command_prefix="!", self_bot=True)
 
 
 async def _try_handle_dice_embed(message, form):
-    """Process Da Hood dice embeds during an active game."""
     if not form or "game_state" not in form:
         return False
     state = form["game_state"]
@@ -43,7 +42,6 @@ async def _try_handle_dice_embed(message, form):
 def set_auto_post_channel_id(channel_id):
     old_id = config.AUTO_POST_CHANNEL_ID
     config.AUTO_POST_CHANNEL_ID = channel_id
-    # Keep ID entries in sync; name entries (e.g. "lf-players") stay as-is
     config.CHANNEL_BLACKLIST = [
         item for item in config.CHANNEL_BLACKLIST
         if not (isinstance(item, int) and item == old_id)
@@ -212,7 +210,6 @@ async def on_guild_channel_delete(channel):
 
 @bot.event
 async def on_message_edit(before, after):
-    """Da Hood often adds roll embeds via message edit — on_message alone misses those."""
     if after.author == bot.user:
         return
     if not isinstance(after.channel, discord.TextChannel):
@@ -237,15 +234,19 @@ async def _handle_stats_command(message):
 @bot.event
 async def on_message(message: discord.Message):
     content = (message.content or "").strip().lower()
-    if content == "!stats":
-        if message.author.id == bot.user.id:
+    if message.author == bot.user:
+        if content == "!stats":
             try:
                 await _handle_stats_command(message)
             except Exception as exc:
                 print(f"[on_message] error handling !stats in #{getattr(message.channel, 'name', '?')}: {exc}")
-        return
-
-    if message.author == bot.user:
+            return
+        if content == "!forceend" or content.startswith("!forceend "):
+            try:
+                await _handle_message(message)
+            except Exception as exc:
+                print(f"[on_message] error handling !forceend in #{getattr(message.channel, 'name', '?')}: {exc}")
+            return
         return
 
     try:
@@ -362,12 +363,10 @@ async def _handle_message(message: discord.Message):
     ):
         await handle_form_step(message, form, bot.user)
 
-    # Handle rerun/confirm/payment listeners before considering a form restart
     if channel_id in active_forms:
         await handle_global_listeners(message, bot.user, start_game, bot)
         return
 
-    # After a game has been played, never auto-start from mentions — only !rerun / "yes"
     if is_ticket_closed(channel_id) or ticket_has_played(channel_id):
         return
 
