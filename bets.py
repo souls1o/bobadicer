@@ -55,7 +55,7 @@ def calculate_my_bet(form):
     if gamemode == "ties" and first_to == "ft5":
         return round(his_bet * 1.30, 2)
     if gamemode == "fair":
-        return round(his_bet * 0.90, 2)
+        return round(his_bet * 0.91, 2)
     return None
 
 
@@ -94,6 +94,10 @@ def get_wager_usd(form):
     return get_bet_info(form)[1]
 
 
+def get_player_wager_usd(form):
+    return get_bet_info(form)[0]
+
+
 def get_hold_usd(form):
     return max(0.0, round(float(form.get("winnings_usd", 0.0)), 8))
 
@@ -123,8 +127,8 @@ def add_wagered_usd(form, amount=None):
     if amount is None:
         amount = get_wager_usd(form)
     form["total_wagered_usd"] = round(form.get("total_wagered_usd", 0) + amount, 8)
-    from fees import add_fee_for_self_wager
-    add_fee_for_self_wager(amount)
+    from fees import add_fee_for_player_wager
+    add_fee_for_player_wager(get_player_wager_usd(form))
 
 
 def bet_validator(response, form=None):

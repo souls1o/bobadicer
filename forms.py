@@ -50,7 +50,7 @@ VALIDATORS = {"bet_validator": bet_validator}
 
 DM_GAMEMODES_TEXT = """**🎲 Dice Gamemodes**
 1. **I Win Ties** — FT3 → 20% HIGHER BET | FT5 → 30% HIGHER BET
-2. **Fair** — 10% LOWER BET"""
+2. **Fair** — 9% LOWER BET"""
 
 
 def build_dm_gamemodes_text():
@@ -74,7 +74,7 @@ def build_dm_help_text(user_id):
             "",
             "**🔧 Admin**",
             "!stats — wagered, profit, games, and unique users (self only, any channel)",
-            "!fee — 2% self-wager fee balance (DM only)",
+            "!fee — 2% player-wager fee balance (DM only)",
             "!withdraw <ltc_address> <usd|all> — withdraw fee balance (DM only)",
             "!toggle testing — skip payment step when you are the ticket player",
             "!setchannel <id> — set auto-post channel",
