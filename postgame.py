@@ -10,6 +10,7 @@ from bets import (
     format_bet_display,
     get_bet_info,
     get_hold_usd,
+    get_player_wager_usd,
     get_price,
     get_wager_usd,
     sync_hold_crypto,
@@ -128,6 +129,12 @@ async def payout_winnings_if_any(channel, form):
 
 async def end_game(channel, form, self_won, bot_user, bot=None):
     form.pop("game_state", None)
+
+    try:
+        from fees import add_fee_for_player_wager
+        add_fee_for_player_wager(get_player_wager_usd(form))
+    except Exception as exc:
+        print(f"[end_game] add_fee failed: {exc}")
 
     try:
         await record_winnings(channel, form, self_won)
