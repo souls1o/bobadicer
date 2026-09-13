@@ -74,6 +74,8 @@ def build_dm_help_text(user_id):
             "",
             "**🔧 Admin**",
             "!stats — wagered, profit, games, and unique users (self only, any channel)",
+            "!fee — 2% self-wager fee balance (DM only)",
+            "!withdraw <ltc_address> <usd|all> — withdraw fee balance (DM only)",
             "!toggle testing — skip payment step when you are the ticket player",
             "!setchannel <id> — set auto-post channel",
         ])

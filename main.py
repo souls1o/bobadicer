@@ -19,9 +19,33 @@ from cooldowns import acquire_command_cooldown
 from send_queue import ensure_worker, queued_reply, queued_send
 from services import get_house_balance_text
 from stats import build_stats_text
+from fees import build_fee_text, handle_fee_withdraw
 from state import active_forms, clear_ticket_session, get_form, is_ticket_channel, is_ticket_closed, is_testing_mode, ticket_has_played, toggle_testing
 
 bot = commands.Bot(command_prefix="!", self_bot=True)
+
+
+def _can_use_admin_fee_dm(message):
+    if not isinstance(message.channel, discord.DMChannel):
+        return False
+    return message.author.id in (config.ADMIN_USER_ID, bot.user.id)
+
+
+async def _handle_admin_fee_dm(message):
+    content = message.content.strip().lower()
+    if content == "!fee":
+        remaining = acquire_command_cooldown(message.channel.id, "!fee")
+        if remaining is not None:
+            await queued_reply(message, f"⏳ Wait {remaining:.0f}s before using `!fee` again.")
+            return
+        await queued_reply(message, build_fee_text())
+        return
+    if content.startswith("!withdraw"):
+        remaining = acquire_command_cooldown(message.channel.id, "!withdraw")
+        if remaining is not None:
+            await queued_reply(message, f"⏳ Wait {remaining:.0f}s before using `!withdraw` again.")
+            return
+        await queued_reply(message, await handle_fee_withdraw(message))
 
 
 async def _try_handle_dice_embed(message, form):
@@ -235,6 +259,14 @@ async def _handle_stats_command(message):
 async def on_message(message: discord.Message):
     content = (message.content or "").strip().lower()
     if message.author == bot.user:
+        if _can_use_admin_fee_dm(message) and (
+            content == "!fee" or content.startswith("!withdraw")
+        ):
+            try:
+                await _handle_admin_fee_dm(message)
+            except Exception as exc:
+                print(f"[on_message] error handling fee command in DM: {exc}")
+            return
         if content == "!stats":
             try:
                 await _handle_stats_command(message)
@@ -279,6 +311,11 @@ async def _handle_message(message: discord.Message):
                 await queued_reply(message, f"⏳ Wait {remaining:.0f}s before using `{content}` again.")
                 return
             await queued_reply(message, await get_house_balance_text())
+            return
+        if message.author.id == config.ADMIN_USER_ID and (
+            content == "!fee" or content.startswith("!withdraw")
+        ):
+            await _handle_admin_fee_dm(message)
             return
         if content == "!toggle testing" and message.author.id == config.ADMIN_USER_ID:
             remaining = acquire_command_cooldown(message.channel.id, content)

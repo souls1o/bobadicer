@@ -123,6 +123,8 @@ def add_wagered_usd(form, amount=None):
     if amount is None:
         amount = get_wager_usd(form)
     form["total_wagered_usd"] = round(form.get("total_wagered_usd", 0) + amount, 8)
+    from fees import add_fee_for_self_wager
+    add_fee_for_self_wager(amount)
 
 
 def bet_validator(response, form=None):
