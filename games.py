@@ -532,6 +532,10 @@ async def start_game(channel, form, bot_user, bot=None):
         first_player = "me"
     else:
         first_player = first_raw
+    if bot:
+        from notifications import notify_admin_game_started
+        asyncio.create_task(notify_admin_game_started(bot, channel, form))
+
     form["game_state"] = {
         "game_type": "dice",
         "first_to": first_to,

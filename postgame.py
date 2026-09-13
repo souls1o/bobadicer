@@ -93,6 +93,13 @@ async def record_winnings(channel, form, self_won):
 
 
 async def _post_game_background(channel, form, self_won, bot_user, bot):
+    if bot:
+        try:
+            from notifications import notify_admin_game_result
+            await notify_admin_game_result(bot, channel, form, self_won)
+        except Exception as exc:
+            print(f"[end_game] notify_admin_game_result failed: {exc}")
+
     try:
         from stats import track_stats
         await track_stats(form, self_won)

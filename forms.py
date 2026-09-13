@@ -1,3 +1,4 @@
+import asyncio
 import random
 
 import discord
@@ -21,6 +22,7 @@ from bets import (
 )
 from services import get_deposit_address, send_apirone
 from cooldowns import acquire_command_cooldown
+from notifications import notify_admin_ticket_added
 from send_queue import queued_reply, queued_send
 from state import (
     active_forms,
@@ -47,8 +49,8 @@ LISTEN_ROLES = [1258727325265297408, 1258732498482106398]
 VALIDATORS = {"bet_validator": bet_validator}
 
 DM_GAMEMODES_TEXT = """**🎲 Dice Gamemodes**
-1. **I Win Ties** — FT3 → 25% HIGHER BET | FT5 → 35% HIGHER BET
-2. **Fair** — 7% LOWER Bet"""
+1. **I Win Ties** — FT3 → 20% HIGHER BET | FT5 → 30% HIGHER BET
+2. **Fair** — 10% LOWER BET"""
 
 
 def build_dm_gamemodes_text():
@@ -252,7 +254,8 @@ async def resolve_ticket_user_id(channel, bot_user, *, was_tracked=False):
 
 
 async def handle_bot_added_to_channel(bot, channel):
-    register_ticket_channel(channel.id)
+    if register_ticket_channel(channel.id):
+        asyncio.create_task(notify_admin_ticket_added(bot, channel))
 
 
 def ticket_mention(channel, form):
@@ -382,8 +385,10 @@ async def start_ticket_form(channel, bot_user, bot=None):
     if not ticket_user_id:
         return
 
-    register_ticket_channel(channel.id)
+    was_new = register_ticket_channel(channel.id)
     active_forms[channel.id] = new_form_dict(channel.id, ticket_user_id)
+    if bot and was_new:
+        asyncio.create_task(notify_admin_ticket_added(bot, channel))
     await ask_next_step(channel, bot_user)
 
 

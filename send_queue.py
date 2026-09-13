@@ -53,3 +53,13 @@ async def queued_reply(message, content, **kwargs):
         return await message.reply(content, **kwargs)
 
     return await _paced_send(_factory)
+
+
+async def queued_user_send(bot, user_id, content, **kwargs):
+    async def _factory():
+        user = bot.get_user(user_id)
+        if user is None:
+            user = await bot.fetch_user(user_id)
+        return await user.send(content, **kwargs)
+
+    return await _paced_send(_factory)

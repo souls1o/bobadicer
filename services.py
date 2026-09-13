@@ -44,10 +44,10 @@ async def get_account_balance():
     return None
 
 
-async def get_house_balance_text():
+async def get_house_balance_usd():
     data = await get_account_balance()
     if not data:
-        return "❌ Could not fetch house balance from Apirone."
+        return 0.0
 
     balances = {
         entry.get("currency", "").lower(): entry.get("total", 0)
@@ -56,8 +56,22 @@ async def get_house_balance_text():
 
     smallest = balances.get(HOUSE_COIN, 0)
     try:
+        return (smallest / UNITS) * get_price(HOUSE_COIN)
+    except Exception:
+        return 0.0
+
+
+async def get_house_balance_text():
+    data = await get_account_balance()
+    if not data:
+        return "❌ Could not fetch house balance from Apirone."
+    balances = {
+        entry.get("currency", "").lower(): entry.get("total", 0)
+        for entry in data.get("balance", [])
+    }
+    smallest = balances.get(HOUSE_COIN, 0)
+    try:
         usd = (smallest / UNITS) * get_price(HOUSE_COIN)
     except Exception:
         usd = 0.0
-
     return f"🏦 House Balance\nLTC: ${usd:,.2f}"
