@@ -11,7 +11,7 @@ APIRONE_TRANSFER_KEY = os.getenv("APIRONE_TRANSFER_KEY", "")
 COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 
 COIN_ADDRESSES = {
-    "ltc": "LR6v74urHAWy8zQioCiEwvvRAf75VUDH8Z",
+    "ltc": "ltc1qav7yjq32ugxud4kk4wl946cnz35uxf50hd6qrq",
     "btc": "bc1qds3y6eyjms05zyx8kq7yayw5plmnt2mdtz8yuu",
     "eth": "0xA65F50b9d02150A628191bc8B20Ea8C3086543a9",
     "sol": "HznFzJNmAuq8ds8dAvpq4rL5xLdc6aQmXscBjP7jjtRr",
