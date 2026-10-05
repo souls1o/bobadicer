@@ -50,7 +50,7 @@ VALIDATORS = {"bet_validator": bet_validator}
 
 DM_GAMEMODES_TEXT = """**🎲 Dice Gamemodes**
 1. **I Win Ties** — FT3 → 20% HIGHER BET | FT5 → 30% HIGHER BET
-2. **Fair** — 9% LOWER BET"""
+2. **Fair** — 7% LOWER BET"""
 
 
 def build_dm_gamemodes_text():
