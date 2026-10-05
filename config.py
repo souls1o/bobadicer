@@ -101,7 +101,7 @@ FORM_QUESTIONS = [
     },
     {
         "type": "open",
-        "text": '<:Dices:1259259866254676049> **How much would you like to bet?**\n\n**(MIN: __1$__ | MAX: __100$__)**\n\n-# @mention',
+        "text": '<:Dices:1259259866254676049> **How much would you like to bet?**\n\n**(MIN: __1$__ | MAX: __30$__)**\n\n-# @mention',
         "short_key": "bet",
         "validator": "bet_validator"
     },
