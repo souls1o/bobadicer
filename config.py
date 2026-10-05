@@ -11,13 +11,13 @@ APIRONE_TRANSFER_KEY = os.getenv("APIRONE_TRANSFER_KEY", "")
 COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 
 COIN_ADDRESSES = {
-    "ltc": "ltc1qav7yjq32ugxud4kk4wl946cnz35uxf50hd6qrq",
+    "ltc": "ltc1qm0p8mfadqqwe3ztzw5hyn4xe0v3k2vgzjmra0t",
     "btc": "bc1qds3y6eyjms05zyx8kq7yayw5plmnt2mdtz8yuu",
-    "eth": "0xA65F50b9d02150A628191bc8B20Ea8C3086543a9",
-    "sol": "HznFzJNmAuq8ds8dAvpq4rL5xLdc6aQmXscBjP7jjtRr",
-    "usdt": "0xA65F50b9d02150A628191bc8B20Ea8C3086543a9",
-    "usdc": "0xA65F50b9d02150A628191bc8B20Ea8C3086543a9",
-    "bnb": "0xA65F50b9d02150A628191bc8B20Ea8C3086543a9"
+    "eth": "0x612283553FDaC711ee03f685E9A2637Fd3Fd6D4e",
+    "sol": "7EQWjVy4qcbNee6SkJi34F7WUDRqrQzieqEnkt7yBFJi",
+    "usdt": "0x612283553FDaC711ee03f685E9A2637Fd3Fd6D4e",
+    "usdc": "0x612283553FDaC711ee03f685E9A2637Fd3Fd6D4e",
+    "bnb": "0x612283553FDaC711ee03f685E9A2637Fd3Fd6D4e"
 }
 
 COIN_ADDRESS_COMMANDS = {
