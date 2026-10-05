@@ -8,7 +8,7 @@ from postgame import end_game
 from send_queue import queued_send
 from state import save_session_from_form
 
-DA_HOOD_BOT_ID = 1200925985999171706
+DA_HOOD_BOT_ID = 1258734061283967017
 ROLL_EMBED_PATTERN = re.compile(r"(\d+)\s*(?:&|\+)\s*(\d+)")
 
 
