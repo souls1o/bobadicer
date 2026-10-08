@@ -61,7 +61,7 @@ CHANNEL_BLACKLIST = [
     "cmds"
 ]
 
-AUTO_POST_MESSAGE = """<:Dices:1259259866254676049> **Dicing from $1 to $30 — open a ticket, I’m fully automated 🤖
+AUTO_POST_MESSAGE = """<:Dices:1259259866254676049> **Dicing from $1 to $50 — open a ticket, I’m fully automated 🤖
 
 <:Dices:1259259866254676049> I Win Ties: FT3 → I offer 20% HIGHER bet / FT5 → I offer 30% HIGHER bet
 <:Dices:1259259866254676049> Standard: FT3/FT5 → I offer 7% LOWER bet**
@@ -101,7 +101,7 @@ FORM_QUESTIONS = [
     },
     {
         "type": "open",
-        "text": '<:Dices:1259259866254676049> **How much would you like to bet?**\n\n**(MIN: __1$__ | MAX: __30$__)**\n\n-# @mention',
+        "text": '<:Dices:1259259866254676049> **How much would you like to bet?**\n\n**(MIN: __1$__ | MAX: __50$__)**\n\n-# @mention',
         "short_key": "bet",
         "validator": "bet_validator"
     },
